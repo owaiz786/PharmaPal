@@ -96,6 +96,24 @@ Future<String> askChatbot(String message) async {
     }
 }
 
+Future<void> processVoiceAudio(File audioFile) async {
+    final url = Uri.parse('$_baseUrl/voice/process-audio');
+    var request = http.MultipartRequest('POST', url);
+    request.files.add(
+        await http.MultipartFile.fromPath('file', audioFile.path),
+    );
+    try {
+        final streamedResponse = await request.send();
+        final response = await http.Response.fromStream(streamedResponse);
+        if (response.statusCode != 200) {
+            final errorBody = json.decode(response.body);
+            throw Exception(errorBody['detail']);
+        }
+    } catch (e) {
+        throw Exception(e.toString());
+    }
+}
+
 Future<Map<String, dynamic>> extractTextFromImage(File imageFile) async {
   final url = Uri.parse('$_baseUrl/ocr/extract-text');
   

@@ -1,4 +1,5 @@
 // lib/inventory_list_screen.dart
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:pharmaapp/api_service.dart';
 import 'package:pharmaapp/medicine.dart';
@@ -7,6 +8,8 @@ import 'package:pharmaapp/scanner_screen.dart';
 import 'package:pharmaapp/app_background.dart';
 import 'package:pharmaapp/ocr_screen.dart';
 import 'package:pharmaapp/chat_bot_screen.dart';
+import 'package:flutter_sound/flutter_sound.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class InventoryListScreen extends StatefulWidget {
   const InventoryListScreen({super.key});
@@ -14,6 +17,11 @@ class InventoryListScreen extends StatefulWidget {
   @override
   State<InventoryListScreen> createState() => _InventoryListScreenState();
 }
+
+FlutterSoundRecorder? _recorder;
+bool _isRecorderInitialized = false;
+bool _isRecording = false;
+String? _audioPath;
 
 class _InventoryListScreenState extends State<InventoryListScreen> {
   final ApiService _apiService = ApiService();
@@ -23,6 +31,80 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
   void initState() {
     super.initState();
     _medicinesFuture = _apiService.fetchAllMedicines();
+    _recorder = FlutterSoundRecorder();
+    _initializeRecorder();
+  }
+
+  Future<void> _initializeRecorder() async {
+    final status = await Permission.microphone.request();
+    if (status != PermissionStatus.granted) {
+      throw RecordingPermissionException('Microphone permission not granted');
+    }
+    await _recorder!.openRecorder();
+    _isRecorderInitialized = true;
+  }
+
+  @override
+  void dispose() {
+    _recorder!.closeRecorder();
+    _recorder = null;
+    super.dispose();
+  }
+
+  // --- RECORDING LOGIC ---
+  void _toggleRecording() async {
+    if (!_isRecorderInitialized) return;
+
+    if (_isRecording) {
+      final path = await _recorder!.stopRecorder();
+      setState(() {
+        _isRecording = false;
+        _audioPath = path;
+      });
+      if (_audioPath != null) {
+        _processRecordedAudio(File(_audioPath!));
+      }
+    } else {
+      setState(() => _isRecording = true);
+      await _recorder!.startRecorder(toFile: 'temp_audio.aac');
+    }
+  }
+
+  void _processRecordedAudio(File audioFile) async {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 20),
+            Text("Processing..."),
+          ],
+        ),
+      ),
+    );
+
+    try {
+      await _apiService.processVoiceAudio(audioFile);
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Item added via voice!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+      _refreshInventory();
+    } catch (e) {
+      Navigator.pop(context);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content:
+              Text(e.toString().replaceFirst("Exception: ", "")),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
   }
 
   Future<void> _refreshInventory() async {
@@ -40,34 +122,41 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
           children: [
             const DrawerHeader(
               decoration: BoxDecoration(color: Colors.teal),
-              child: Text('Menu',
-                  style: TextStyle(color: Colors.white, fontSize: 24)),
+              child: Text(
+                'Menu',
+                style: TextStyle(color: Colors.white, fontSize: 24),
+              ),
             ),
             ListTile(
-              leading: const Icon(Icons.inventory),
+              leading: const Icon(Icons.inventory, color: Colors.teal),
               title: const Text('View Inventory'),
               onTap: () {
                 Navigator.pop(context);
               },
             ),
             ListTile(
-              leading: const Icon(Icons.qr_code_scanner),
+              leading: const Icon(Icons.qr_code_scanner, color: Colors.teal),
               title: const Text('Scan Item'),
               onTap: () {
                 Navigator.pop(context);
                 Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                        builder: (context) => const ScannerScreen()));
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => const ScannerScreen(),
+                  ),
+                );
               },
             ),
             ListTile(
-              leading: const Icon(Icons.document_scanner_outlined),
+              leading:
+                  const Icon(Icons.document_scanner_outlined, color: Colors.teal),
               title: const Text('Extract from Image (OCR)'),
               onTap: () {
                 Navigator.pop(context);
-                Navigator.push(context,
-                    MaterialPageRoute(builder: (context) => const OcrScreen()));
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (context) => const OcrScreen()),
+                );
               },
             ),
           ],
@@ -102,7 +191,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                       ElevatedButton(
                         onPressed: _refreshInventory,
                         child: const Text('Try Again'),
-                      )
+                      ),
                     ],
                   ),
                 );
@@ -134,7 +223,8 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                       color: Colors.redAccent,
                       alignment: Alignment.centerRight,
                       padding: const EdgeInsets.symmetric(horizontal: 20.0),
-                      child: const Icon(Icons.delete_forever, color: Colors.white),
+                      child:
+                          const Icon(Icons.delete_forever, color: Colors.white),
                     ),
                     direction: DismissDirection.endToStart,
                     onDismissed: (direction) async {
@@ -158,14 +248,30 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                       }
                     },
                     child: Card(
-                      margin: const EdgeInsets.symmetric(
-                          horizontal: 8.0, vertical: 4.0),
+                      margin:
+                          const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                      elevation: 4,
                       child: ListTile(
-                        leading: const Icon(Icons.medication_outlined),
-                        title: Text(medicine.name),
+                        leading: const Icon(Icons.medication_outlined,
+                            color: Colors.teal),
+                        title: Text(medicine.name,
+                            style: const TextStyle(fontWeight: FontWeight.w600)),
                         subtitle: Text(medicine.manufacturer ?? 'N/A'),
-                        trailing: Text('Stock: ${medicine.totalQuantity}',
-                            style: const TextStyle(fontWeight: FontWeight.bold)),
+                        trailing: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 4),
+                          decoration: BoxDecoration(
+                            color: Colors.teal.shade50,
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Text(
+                            'Stock: ${medicine.totalQuantity}',
+                            style: const TextStyle(
+                                fontWeight: FontWeight.bold, color: Colors.teal),
+                          ),
+                        ),
                         onTap: () {
                           Navigator.push(
                             context,
@@ -183,15 +289,31 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
           ),
         ),
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          Navigator.push(
-            context,
-            MaterialPageRoute(builder: (context) => const ChatbotScreen()),
-          );
-        },
-        tooltip: 'Ask PharmPal',
-        child: const Icon(Icons.chat_bubble_outline),
+      floatingActionButton: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          FloatingActionButton(
+            onPressed: _toggleRecording,
+            tooltip: 'Add via Voice',
+            heroTag: 'voice_fab',
+            backgroundColor:
+                _isRecording ? Colors.redAccent : Theme.of(context).colorScheme.primary,
+            child: Icon(_isRecording ? Icons.stop : Icons.mic),
+          ),
+          const SizedBox(height: 12),
+          FloatingActionButton(
+            onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const ChatbotScreen()),
+              );
+            },
+            tooltip: 'Ask PharmPal',
+            heroTag: 'chat_fab',
+            child: const Icon(Icons.chat_bubble_outline),
+          ),
+        ],
       ),
     );
   }
