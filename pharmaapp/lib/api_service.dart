@@ -74,6 +74,28 @@ Future<Medicine> smartCreateMedicine({
     }
 }
 
+// lib/api_service.dart
+
+Future<String> askChatbot(String message) async {
+    final url = Uri.parse('$_baseUrl/chatbot/query');
+    final body = json.encode({'message': message});
+    try {
+        final response = await http.post(
+            url,
+            headers: {'Content-Type': 'application/json'},
+            body: body,
+        );
+        if (response.statusCode == 200) {
+            final responseBody = json.decode(response.body);
+            return responseBody['response'];
+        } else {
+            throw Exception('Chatbot failed to respond.');
+        }
+    } catch (e) {
+        throw Exception('Failed to connect to the chatbot server.');
+    }
+}
+
 Future<Map<String, dynamic>> extractTextFromImage(File imageFile) async {
   final url = Uri.parse('$_baseUrl/ocr/extract-text');
   

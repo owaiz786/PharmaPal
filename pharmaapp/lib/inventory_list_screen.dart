@@ -4,8 +4,9 @@ import 'package:pharmaapp/api_service.dart';
 import 'package:pharmaapp/medicine.dart';
 import 'package:pharmaapp/medicine_detail_screen.dart';
 import 'package:pharmaapp/scanner_screen.dart';
-import 'package:pharmaapp/app_background.dart'; // UPDATED: Import the new background widget
+import 'package:pharmaapp/app_background.dart';
 import 'package:pharmaapp/ocr_screen.dart';
+import 'package:pharmaapp/chat_bot_screen.dart';
 
 class InventoryListScreen extends StatefulWidget {
   const InventoryListScreen({super.key});
@@ -34,38 +35,44 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       drawer: Drawer(
-  child: ListView(
-    padding: EdgeInsets.zero,
-    children: [
-      const DrawerHeader(
-        decoration: BoxDecoration(color: Colors.teal),
-        child: Text('Menu', style: TextStyle(color: Colors.white, fontSize: 24)),
+        child: ListView(
+          padding: EdgeInsets.zero,
+          children: [
+            const DrawerHeader(
+              decoration: BoxDecoration(color: Colors.teal),
+              child: Text('Menu',
+                  style: TextStyle(color: Colors.white, fontSize: 24)),
+            ),
+            ListTile(
+              leading: const Icon(Icons.inventory),
+              title: const Text('View Inventory'),
+              onTap: () {
+                Navigator.pop(context);
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.qr_code_scanner),
+              title: const Text('Scan Item'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (context) => const ScannerScreen()));
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.document_scanner_outlined),
+              title: const Text('Extract from Image (OCR)'),
+              onTap: () {
+                Navigator.pop(context);
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (context) => const OcrScreen()));
+              },
+            ),
+          ],
+        ),
       ),
-      ListTile(
-        leading: const Icon(Icons.inventory),
-        title: const Text('View Inventory'),
-        onTap: () { Navigator.pop(context); }, // Close drawer, we're here
-      ),
-      ListTile(
-        leading: const Icon(Icons.qr_code_scanner),
-        title: const Text('Scan Item'),
-        onTap: () {
-          Navigator.pop(context);
-          Navigator.push(context, MaterialPageRoute(builder: (context) => const ScannerScreen()));
-        },
-      ),
-      // --- ADD THIS NEW LISTTILE ---
-      ListTile(
-        leading: const Icon(Icons.document_scanner_outlined),
-        title: const Text('Extract from Image (OCR)'),
-        onTap: () {
-          Navigator.pop(context); // Close the drawer first
-          Navigator.push(context, MaterialPageRoute(builder: (context) => const OcrScreen()));
-        },
-      ),
-    ],
-  ),
-),
       appBar: AppBar(
         title: const Text('Current Inventory'),
         actions: [
@@ -76,7 +83,6 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
           ),
         ],
       ),
-      // UPDATED: The body is now wrapped with the AppBackground widget
       body: AppBackground(
         child: RefreshIndicator(
           onRefresh: _refreshInventory,
@@ -86,12 +92,12 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
               if (snapshot.connectionState == ConnectionState.waiting) {
                 return const Center(child: CircularProgressIndicator());
               } else if (snapshot.hasError) {
-                // Completed the error UI
                 return Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text('Error: ${snapshot.error}', textAlign: TextAlign.center),
+                      Text('Error: ${snapshot.error}',
+                          textAlign: TextAlign.center),
                       const SizedBox(height: 10),
                       ElevatedButton(
                         onPressed: _refreshInventory,
@@ -101,15 +107,16 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                   ),
                 );
               } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-                // Completed the empty state UI
                 return const Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.inventory_2_outlined, size: 80, color: Colors.grey),
+                      Icon(Icons.inventory_2_outlined,
+                          size: 80, color: Colors.grey),
                       SizedBox(height: 16),
                       Text('No medicines found.', style: TextStyle(fontSize: 18)),
-                      Text('Pull down to refresh, or scan an item.', style: TextStyle(color: Colors.grey)),
+                      Text('Pull down to refresh, or scan an item.',
+                          style: TextStyle(color: Colors.grey)),
                     ],
                   ),
                 );
@@ -123,7 +130,6 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                   final medicine = medicines[index];
                   return Dismissible(
                     key: Key(medicine.id.toString()),
-                    // Completed the Dismissible logic
                     background: Container(
                       color: Colors.redAccent,
                       alignment: Alignment.centerRight,
@@ -138,26 +144,34 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                           medicines.removeAt(index);
                         });
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('${medicine.name} deleted'), backgroundColor: Colors.green),
+                          SnackBar(
+                              content: Text('${medicine.name} deleted'),
+                              backgroundColor: Colors.green),
                         );
                       } catch (e) {
                         setState(() {});
                         ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(content: Text('Failed to delete: $e'), backgroundColor: Colors.red),
+                          SnackBar(
+                              content: Text('Failed to delete: $e'),
+                              backgroundColor: Colors.red),
                         );
                       }
                     },
                     child: Card(
-                      margin: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+                      margin: const EdgeInsets.symmetric(
+                          horizontal: 8.0, vertical: 4.0),
                       child: ListTile(
                         leading: const Icon(Icons.medication_outlined),
                         title: Text(medicine.name),
                         subtitle: Text(medicine.manufacturer ?? 'N/A'),
-                        trailing: Text('Stock: ${medicine.totalQuantity}', style: const TextStyle(fontWeight: FontWeight.bold)),
+                        trailing: Text('Stock: ${medicine.totalQuantity}',
+                            style: const TextStyle(fontWeight: FontWeight.bold)),
                         onTap: () {
                           Navigator.push(
                             context,
-                            MaterialPageRoute(builder: (context) => MedicineDetailScreen(medicine: medicine)),
+                            MaterialPageRoute(
+                                builder: (context) =>
+                                    MedicineDetailScreen(medicine: medicine)),
                           ).then((_) => _refreshInventory());
                         },
                       ),
@@ -168,6 +182,16 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
             },
           ),
         ),
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(builder: (context) => const ChatbotScreen()),
+          );
+        },
+        tooltip: 'Ask PharmPal',
+        child: const Icon(Icons.chat_bubble_outline),
       ),
     );
   }
