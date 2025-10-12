@@ -55,3 +55,16 @@ class GS1ScanRequest(BaseModel):
     quantity: int
     class Config:
         from_attributes = True
+        
+class SmartCreateRequest(BaseModel):
+    # Fields for the Medicine catalog item
+    barcode: Optional[str] = None
+    name: str
+    manufacturer: Optional[str] = None
+    strength: Optional[str] = None
+    price: float
+    
+    # Fields for the first InventoryItem batch
+    lot_number: str
+    quantity: int
+    expiry_date: date        

@@ -7,8 +7,7 @@ try:
         password="npg_NIHLgqWsP45B",
         host="ep-rapid-hill-ad8bzv0f-pooler.c-2.us-east-1.aws.neon.tech",
         port="5432",
-        sslmode="require",
-        channel_binding="require"
+        sslmode="require"
     )
     print("✅ Connected to Neon!")
 except Exception as e:

@@ -1,5 +1,5 @@
 # main.py
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import List
 import re
@@ -7,7 +7,9 @@ from datetime import datetime
 import models, schemas
 from database import SessionLocal, engine
 from fastapi.responses import JSONResponse
+import easyocr
 
+reader = easyocr.Reader(['en'])
 
 models.Base.metadata.create_all(bind=engine)
 
@@ -24,6 +26,40 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+# main.py
+
+def find_and_parse_date(text_block: str):
+    """
+    Uses regex and dateutil to find and parse a date from a block of text.
+    Handles formats like YYYY-MM-DD, DD/MM/YYYY, DD-MON-YYYY, MM/YY, etc.
+    """
+    # Improved regex to capture more date formats, including month names
+    date_pattern = r'(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}[/-]\d{1,2}[/-]\d{1,2}|\d{1,2}[ -](?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[ -]\d{2,4})'
+    match = re.search(date_pattern, text_block, re.IGNORECASE)
+    if match:
+        try:
+            # Use the powerful dateutil parser
+            return parse_date(match.group(0)).date()
+        except (ValueError, OverflowError):
+            return None
+    return None
+
+
+def find_and_parse_price(text_block: str):
+    """
+    Uses regex to find a price in a block of text.
+    Handles formats like $12.34, MRP: 50.00, Rs. 100, etc.
+    """
+    price_pattern = r'(?:MRP|Rs\.?|\$)\s*[:\- ]?\s*(\d+\.?\d*)'
+    match = re.search(price_pattern, text_block, re.IGNORECASE)
+    if match:
+        try:
+            return float(match.group(1))
+        except ValueError:
+            return None
+    return None
 
 def parse_gs1_string(data: str) -> dict:
     """
@@ -113,6 +149,79 @@ def read_medicine_by_barcode(barcode: str, db: Session = Depends(get_db)):
 
 # --- Inventory Endpoints ---
 
+# main.py
+
+# main.py
+
+# ... (after your other imports and reader initialization) ...
+
+@app.post("/ocr/extract-text")
+def extract_text_from_image(file: UploadFile = File(...)):
+    """
+    Receives an image, uses EasyOCR to extract all text,
+    and returns the combined text block.
+    """
+    image_bytes = file.file.read()
+    
+    # Use EasyOCR to perform text recognition
+    result = reader.readtext(image_bytes)
+    
+    # Combine all detected text fragments into a single string
+    full_text = " ".join([text for bbox, text, conf in result])
+    
+    if not full_text:
+        raise HTTPException(status_code=400, detail="No text detected in the image.")
+        
+    return {"found_text": full_text}
+
+@app.post("/inventory/{item_id}/update-details-from-image")
+def update_details_from_image(item_id: int, db: Session = Depends(get_db), file: UploadFile = File(...)):
+    """
+    Receives an image, uses EasyOCR to find expiry date and/or price,
+    and updates the corresponding inventory item.
+    """
+    db_item = db.query(models.InventoryItem).filter(models.InventoryItem.id == item_id).first()
+    if not db_item:
+        raise HTTPException(status_code=404, detail="Inventory item not found.")
+
+    # Read the image content from the uploaded file
+    image_bytes = file.file.read()
+
+    # Use EasyOCR to perform text recognition on the image bytes
+    result = reader.readtext(image_bytes)
+    
+    # Combine all detected text fragments into a single string for easier parsing
+    full_text = " ".join([text for bbox, text, conf in result])
+    
+    if not full_text:
+        raise HTTPException(status_code=400, detail="No text detected in the image.")
+
+    # Use our helper functions to find the data we need
+    found_date = find_and_parse_date(full_text)
+    found_price = find_and_parse_price(full_text)
+    
+    updates_made = False
+    response_details = {"found_text": full_text}
+
+    if found_date:
+        db_item.expiry_date = found_date
+        response_details["updated_date"] = found_date.isoformat()
+        updates_made = True
+    
+    # We need to update the price on the parent Medicine, not the batch
+    if found_price:
+        db_medicine = db.query(models.Medicine).filter(models.Medicine.id == db_item.medicine_id).first()
+        if db_medicine:
+            db_medicine.price = found_price
+            response_details["updated_price"] = found_price
+            updates_made = True
+        
+    if updates_made:
+        db.commit()
+        return response_details
+    else:
+        raise HTTPException(status_code=400, detail=f"No valid date or price found in the text: '{full_text}'")
+
 @app.post("/inventory/receive", response_model=schemas.InventoryItem, status_code=201)
 def receive_inventory_item(item: schemas.InventoryItemCreate, db: Session = Depends(get_db)):
     """
@@ -129,6 +238,39 @@ def receive_inventory_item(item: schemas.InventoryItemCreate, db: Session = Depe
     db.refresh(db_item)
     return db_item
 
+@app.post("/medicines/smart-create", response_model=schemas.Medicine)
+def smart_create_medicine_and_inventory(request: schemas.SmartCreateRequest, db: Session = Depends(get_db)):
+    """
+    Creates a new medicine in the catalog AND its first inventory item
+    in a single transaction.
+    """
+    # First, create the new Medicine catalog item
+    new_medicine = models.Medicine(
+        barcode=request.barcode,
+        name=request.name,
+        manufacturer=request.manufacturer,
+        strength=request.strength,
+        price=request.price,
+        # We use the batch's expiry as the default for the medicine
+        expiry_date=request.expiry_date 
+    )
+    db.add(new_medicine)
+    # We need to commit here to get the new_medicine.id for the next step
+    db.commit()
+    db.refresh(new_medicine)
+
+    # Now, create the first InventoryItem and link it to the new medicine
+    new_inventory_item = models.InventoryItem(
+        medicine_id=new_medicine.id,
+        lot_number=request.lot_number,
+        quantity=request.quantity,
+        expiry_date=request.expiry_date
+    )
+    db.add(new_inventory_item)
+    db.commit()
+    db.refresh(new_medicine) # Refresh again to load the new inventory item into the relationship
+
+    return new_medicine
 @app.post("/inventory/dispense")
 def dispense_inventory_item(dispense_request: schemas.DispenseRequest, db: Session = Depends(get_db)):
     """

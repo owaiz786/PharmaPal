@@ -4,7 +4,8 @@ import 'package:pharmaapp/api_service.dart';
 import 'package:pharmaapp/medicine.dart';
 import 'package:pharmaapp/edit_medicine_screen.dart';
 import 'package:intl/intl.dart';
-
+import 'package:image_picker/image_picker.dart'; // Add import
+import 'dart:io';
 class MedicineDetailScreen extends StatefulWidget {
   final Medicine medicine;
   const MedicineDetailScreen({super.key, required this.medicine});
@@ -62,7 +63,21 @@ class _MedicineDetailScreenState extends State<MedicineDetailScreen> {
       ),
     );
   }
+void _handleOcrUpdate(InventoryItem item) async {
+    final ImagePicker picker = ImagePicker();
+    final XFile? image = await picker.pickImage(source: ImageSource.gallery);
 
+    if (image != null) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Uploading and processing... This may take a moment.')));
+        try {
+            await _apiService.updateDetailsFromImage(item.id, File(image.path));
+            ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Details updated successfully!'), backgroundColor: Colors.green));
+            _refreshMedicineData(); // Use your existing refresh method
+        } catch (e) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString().replaceFirst("Exception: ", "")), backgroundColor: Colors.red));
+        }
+    }
+}
   // --- DISPENSE DIALOG ---
   void _showDispenseDialog(InventoryItem item) {
     final quantityController = TextEditingController();
@@ -162,104 +177,126 @@ class _MedicineDetailScreenState extends State<MedicineDetailScreen> {
   // Note: Use the same instance name as other files — replace `_api_service` with `_apiService` if you use that elsewhere.
   // Above I used `_api_service` inside dialogs to match typical naming; if you prefer `_apiService`, change consistently.
 
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(_currentMedicine.name),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.edit),
-            tooltip: 'Edit Details',
-            onPressed: () async {
-              final result = await Navigator.push<Medicine>(
-                context,
-                MaterialPageRoute(
-                  builder: (context) =>
-                      EditMedicineScreen(medicine: _currentMedicine),
-                ),
-              );
-              if (result != null) {
-                setState(() {
-                  _currentMedicine = result;
-                });
-              }
-            },
-          ),
-          IconButton(
+ @override
+Widget build(BuildContext context) {
+  return Scaffold(
+    appBar: AppBar(
+      title: Text(_currentMedicine.name),
+      actions: [
+        IconButton(
+          icon: const Icon(Icons.edit),
+          tooltip: 'Edit Details',
+          onPressed: () async {
+            final result = await Navigator.push<Medicine>(
+              context,
+              MaterialPageRoute(
+                builder: (context) =>
+                    EditMedicineScreen(medicine: _currentMedicine),
+              ),
+            );
+            if (result != null) {
+              setState(() {
+                _currentMedicine = result;
+              });
+            }
+          },
+        ),
+        IconButton(
           icon: const Icon(Icons.delete_forever),
           tooltip: 'Delete Medicine',
           onPressed: _showDeleteConfirmationDialog,
         ),
-        ],
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(8.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header card — showing manufacturer, total stock & price instead of category
-            Card(
-              margin: const EdgeInsets.all(8.0),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 12.0, horizontal: 16.0),
+      ],
+    ),
+    body: Padding(
+      padding: const EdgeInsets.all(8.0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Header card — showing manufacturer, total stock & price
+          Card(
+            margin: const EdgeInsets.all(8.0),
+            child: Padding(
+              padding:
+                  const EdgeInsets.symmetric(vertical: 12.0, horizontal: 16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    _currentMedicine.name,
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  const SizedBox(height: 6),
+                  Text(
+                      'Manufacturer: ${_currentMedicine.manufacturer ?? 'N/A'}'),
+                  Text('Total Stock: ${_currentMedicine.totalQuantity} units'),
+                  Text('Price: \$${_currentMedicine.price.toStringAsFixed(2)}'),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text('Batches in Stock',
+              style: Theme.of(context).textTheme.titleLarge),
+          const Divider(),
+          Expanded(
+  child: ListView.builder(
+    itemCount: _currentMedicine.inventoryItems.length,
+    itemBuilder: (context, index) {
+      final item = _currentMedicine.inventoryItems[index];
+      return Card(
+        margin: const EdgeInsets.symmetric(vertical: 6.0, horizontal: 4.0),
+        child: Padding(
+          padding: const EdgeInsets.all(8.0),
+          child: Row(
+            children: [
+              // Left: Lot info
+              Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      _currentMedicine.name,
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    const SizedBox(height: 6),
-                    Text('Manufacturer: ${_currentMedicine.manufacturer ?? 'N/A'}'),
-                    Text('Total Stock: ${_currentMedicine.totalQuantity} units'),
-                    Text('Price: \$${_currentMedicine.price.toStringAsFixed(2)}'),
+                    Text('Lot #: ${item.lotNumber}',
+                        style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 4),
+                    Text('Expires: ${DateFormat.yMMMd().format(item.expiryDate)}',
+                        style: Theme.of(context).textTheme.bodyMedium),
+                    const SizedBox(height: 4),
+                    Text('Qty: ${item.quantity}',
+                        style: Theme.of(context).textTheme.bodyMedium),
                   ],
                 ),
               ),
-            ),
-            const SizedBox(height: 16),
-            Text('Batches in Stock',
-                style: Theme.of(context).textTheme.titleLarge),
-            const Divider(),
-            Expanded(
-              child: ListView.builder(
-                itemCount: _currentMedicine.inventoryItems.length,
-                itemBuilder: (context, index) {
-                  final item = _currentMedicine.inventoryItems[index];
-                  return Card(
-                    margin: const EdgeInsets.symmetric(vertical: 4.0),
-                    child: ListTile(
-                      title: Text('Lot #: ${item.lotNumber}'),
-                      subtitle: Text(
-                          'Expires: ${DateFormat.yMMMd().format(item.expiryDate)}'),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text('Qty: ${item.quantity}',
-                              style: Theme.of(context).textTheme.titleMedium),
-                          IconButton(
-                            icon: const Icon(Icons.add_circle,
-                                color: Colors.green),
-                            onPressed: () => _showRestockDialog(item),
-                            tooltip: 'Add Stock',
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.remove_circle,
-                                color: Colors.redAccent),
-                            onPressed: () => _showDispenseDialog(item),
-                            tooltip: 'Dispense Item',
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
+              // Right: Action buttons
+              Column(
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.add_circle, color: Colors.green),
+                    onPressed: () => _showRestockDialog(item),
+                    tooltip: 'Add Stock',
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.remove_circle, color: Colors.redAccent),
+                    onPressed: () => _showDispenseDialog(item),
+                    tooltip: 'Dispense Item',
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.camera_alt_outlined,
+                        color: Colors.blueAccent),
+                    onPressed: () => _handleOcrUpdate(item),
+                    tooltip: 'Update via Image (OCR)',
+                  ),
+                ],
               ),
-            ),
-          ],
+            ],
+          ),
         ),
+      );
+    },
+  ),
+),
+        ],
       ),
-    );
-  }
+    ),
+  );
+}
 }

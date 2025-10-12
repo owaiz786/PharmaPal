@@ -5,6 +5,7 @@ import 'package:pharmaapp/medicine.dart';
 import 'package:pharmaapp/medicine_detail_screen.dart';
 import 'package:pharmaapp/scanner_screen.dart';
 import 'package:pharmaapp/app_background.dart'; // UPDATED: Import the new background widget
+import 'package:pharmaapp/ocr_screen.dart';
 
 class InventoryListScreen extends StatefulWidget {
   const InventoryListScreen({super.key});
@@ -33,29 +34,38 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       drawer: Drawer(
-        child: ListView(
-          padding: EdgeInsets.zero,
-          children: [
-            const DrawerHeader(
-              decoration: BoxDecoration(color: Colors.teal),
-              child: Text('Menu', style: TextStyle(color: Colors.white, fontSize: 24)),
-            ),
-            ListTile(
-              leading: const Icon(Icons.inventory),
-              title: const Text('View Inventory'),
-              onTap: () { Navigator.pop(context); },
-            ),
-            ListTile(
-              leading: const Icon(Icons.qr_code_scanner),
-              title: const Text('Scan Item'),
-              onTap: () {
-                Navigator.pop(context);
-                Navigator.push(context, MaterialPageRoute(builder: (context) => const ScannerScreen()));
-              },
-            ),
-          ],
-        ),
+  child: ListView(
+    padding: EdgeInsets.zero,
+    children: [
+      const DrawerHeader(
+        decoration: BoxDecoration(color: Colors.teal),
+        child: Text('Menu', style: TextStyle(color: Colors.white, fontSize: 24)),
       ),
+      ListTile(
+        leading: const Icon(Icons.inventory),
+        title: const Text('View Inventory'),
+        onTap: () { Navigator.pop(context); }, // Close drawer, we're here
+      ),
+      ListTile(
+        leading: const Icon(Icons.qr_code_scanner),
+        title: const Text('Scan Item'),
+        onTap: () {
+          Navigator.pop(context);
+          Navigator.push(context, MaterialPageRoute(builder: (context) => const ScannerScreen()));
+        },
+      ),
+      // --- ADD THIS NEW LISTTILE ---
+      ListTile(
+        leading: const Icon(Icons.document_scanner_outlined),
+        title: const Text('Extract from Image (OCR)'),
+        onTap: () {
+          Navigator.pop(context); // Close the drawer first
+          Navigator.push(context, MaterialPageRoute(builder: (context) => const OcrScreen()));
+        },
+      ),
+    ],
+  ),
+),
       appBar: AppBar(
         title: const Text('Current Inventory'),
         actions: [
