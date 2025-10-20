@@ -1,8 +1,7 @@
-// lib/scanner_screen.dart
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:provider/provider.dart';
 import 'package:pharmaapp/api_service.dart';
-import 'package:pharmaapp/auth_service.dart';
 import 'package:pharmaapp/medicine.dart';
 import 'package:pharmaapp/create_medicine_screen.dart';
 import 'package:pharmaapp/app_background.dart';
@@ -16,17 +15,12 @@ class ScannerScreen extends StatefulWidget {
 
 class _ScannerScreenState extends State<ScannerScreen> {
   final MobileScannerController _scannerController = MobileScannerController();
-  late final ApiService _apiService;
   bool _isProcessing = false;
 
-  @override
-  void initState() {
-    super.initState();
-    _apiService = ApiService(AuthService());
-  }
-
   void _showQuantityDialog(String gs1Data) {
+    final apiService = Provider.of<ApiService>(context, listen: false);
     final quantityController = TextEditingController();
+    
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -51,25 +45,37 @@ class _ScannerScreenState extends State<ScannerScreen> {
               final quantity = int.tryParse(quantityController.text) ?? 0;
               if (quantity <= 0) return;
 
+              final navigator = Navigator.of(context);
+              final scaffoldMessenger = ScaffoldMessenger.of(context);
+              if (!mounted) return;
+
               try {
-                await _apiService.addInventoryFromGS1(gs1Data, quantity);
-                Navigator.pop(context); // Close dialog first
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('GS1 Inventory added successfully!'),
-                    backgroundColor: Colors.green,
-                  ),
-                );
-                _resetScanner(); // Then reset scanner
+                await apiService.addInventoryFromGS1(gs1Data, quantity);
+                
+                if (!mounted) return;
+                navigator.pop(); // Close dialog
+                
+                // Wait a bit for dialog to close, then navigate back
+                await Future.delayed(const Duration(milliseconds: 100));
+                if (mounted) {
+                  Navigator.of(context).pop(); // Go back to home page
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('GS1 Inventory added successfully!'),
+                      backgroundColor: Colors.green,
+                    ),
+                  );
+                }
               } catch (e) {
-                Navigator.pop(context); // Close dialog on error too
-                ScaffoldMessenger.of(context).showSnackBar(
+                if (!mounted) return;
+                navigator.pop(); // Close dialog
+                scaffoldMessenger.showSnackBar(
                   SnackBar(
                     content: Text(e.toString().replaceFirst("Exception: ", "")),
                     backgroundColor: Colors.red,
                   ),
                 );
-                _resetScanner(); // Reset scanner even on error
+                _resetScanner();
               }
             },
             child: const Text('Submit'),
@@ -80,51 +86,51 @@ class _ScannerScreenState extends State<ScannerScreen> {
   }
 
   void _onBarcodeDetect(BarcodeCapture capture) async {
+    final apiService = Provider.of<ApiService>(context, listen: false);
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
+    final navigator = Navigator.of(context);
+
     if (_isProcessing) return;
     final barcodeValue = capture.barcodes.first.rawValue;
     if (barcodeValue == null) return;
     
-    setState(() {
-      _isProcessing = true;
-    });
-    _scannerController.stop(); // Stop scanner during processing
+    setState(() { _isProcessing = true; });
+    _scannerController.stop();
 
     if (barcodeValue.contains('(01)') && barcodeValue.contains('(10)') && barcodeValue.contains('(17)')) {
       _showQuantityDialog(barcodeValue);
     } else {
       try {
-        final medicine = await _apiService.fetchMedicineByBarcode(barcodeValue);
+        final medicine = await apiService.fetchMedicineByBarcode(barcodeValue);
         _showAddInventoryDialog(medicine);
       } catch (e) {
         if (e.toString().contains('not found')) {
-          final result = await Navigator.push<Medicine>(
-            context,
-            MaterialPageRoute(
-              builder: (context) => CreateMedicineScreen(barcode: barcodeValue),
-            ),
+          final result = await navigator.push<Medicine>(
+            MaterialPageRoute(builder: (context) => CreateMedicineScreen(barcode: barcodeValue)),
           );
           if (result != null) {
             _showAddInventoryDialog(result);
           } else {
-            _resetScanner(); // Reset if user cancels creation
+            _resetScanner();
           }
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
+          scaffoldMessenger.showSnackBar(
             SnackBar(
               content: Text(e.toString().replaceFirst("Exception: ", "")),
               backgroundColor: Colors.red,
             ),
           );
-          _resetScanner(); // Reset on other errors
+          _resetScanner();
         }
       }
     }
   }
 
   void _showAddInventoryDialog(Medicine medicine) {
+    final apiService = Provider.of<ApiService>(context, listen: false);
     final lotNumberController = TextEditingController();
     final quantityController = TextEditingController();
-    final expiryDate = ValueNotifier<DateTime>(DateTime.now());
+    final expiryDate = ValueNotifier<DateTime>(DateTime.now().add(const Duration(days: 365)));
 
     showDialog(
       context: context,
@@ -138,33 +144,37 @@ class _ScannerScreenState extends State<ScannerScreen> {
               children: [
                 TextField(
                   controller: lotNumberController,
-                  decoration: const InputDecoration(labelText: 'Lot Number'),
+                  decoration: const InputDecoration(
+                    labelText: 'Lot Number (Optional)',
+                    hintText: 'Auto-generated if empty',
+                  ),
                 ),
+                const SizedBox(height: 16),
                 TextField(
                   controller: quantityController,
-                  decoration: const InputDecoration(labelText: 'Quantity'),
+                  autofocus: true,
                   keyboardType: TextInputType.number,
+                  decoration: const InputDecoration(labelText: 'Quantity Received'),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
                 ValueListenableBuilder<DateTime>(
                   valueListenable: expiryDate,
-                  builder: (context, value, child) {
-                    return InkWell(
+                  builder: (context, date, _) {
+                    return ListTile(
+                      title: const Text('Expiry Date'),
+                      subtitle: Text('${date.day}/${date.month}/${date.year}'),
+                      trailing: const Icon(Icons.calendar_today),
                       onTap: () async {
-                        final pickedDate = await showDatePicker(
+                        final picked = await showDatePicker(
                           context: context,
-                          initialDate: value,
+                          initialDate: date,
                           firstDate: DateTime.now(),
-                          lastDate: DateTime(2100),
+                          lastDate: DateTime.now().add(const Duration(days: 3650)),
                         );
-                        if (pickedDate != null) {
-                          expiryDate.value = pickedDate;
+                        if (picked != null) {
+                          expiryDate.value = picked;
                         }
                       },
-                      child: InputDecorator(
-                        decoration: const InputDecoration(labelText: 'Expiry Date'),
-                        child: Text("${value.toLocal()}".split(' ')[0]),
-                      ),
                     );
                   },
                 ),
@@ -186,14 +196,18 @@ class _ScannerScreenState extends State<ScannerScreen> {
                   ScaffoldMessenger.of(context).showSnackBar(
                     const SnackBar(
                       content: Text('Please enter a valid quantity'),
-                      backgroundColor: Colors.orange,
+                      backgroundColor: Colors.red,
                     ),
                   );
                   return;
                 }
 
+                final navigator = Navigator.of(context);
+                final scaffoldMessenger = ScaffoldMessenger.of(context);
+                if (!mounted) return;
+
                 try {
-                  await _apiService.addInventoryItem(
+                  await apiService.addInventoryItem(
                     medicineId: medicine.id,
                     lotNumber: lotNumberController.text.isEmpty 
                         ? 'LOT-${DateTime.now().millisecondsSinceEpoch}' 
@@ -201,23 +215,31 @@ class _ScannerScreenState extends State<ScannerScreen> {
                     quantity: quantity,
                     expiryDate: expiryDate.value,
                   );
-                  Navigator.pop(context); // Close dialog first
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Inventory added successfully!'),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
-                  _resetScanner(); // Then reset scanner
+                  
+                  if (!mounted) return;
+                  navigator.pop(); // Close dialog
+                  
+                  // Wait a bit for dialog to close, then navigate back
+                  await Future.delayed(const Duration(milliseconds: 100));
+                  if (mounted) {
+                    Navigator.of(context).pop(); // Go back to home page
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Inventory added successfully!'),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                  }
                 } catch (e) {
-                  Navigator.pop(context); // Close dialog on error
-                  ScaffoldMessenger.of(context).showSnackBar(
+                  if (!mounted) return;
+                  navigator.pop(); // Close dialog
+                  scaffoldMessenger.showSnackBar(
                     SnackBar(
                       content: Text(e.toString()),
                       backgroundColor: Colors.red,
                     ),
                   );
-                  _resetScanner(); // Reset scanner on error too
+                  _resetScanner();
                 }
               },
               child: const Text('Submit'),
@@ -229,7 +251,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
   }
 
   void _resetScanner() {
-    // Simply start the scanner without checking if it's already starting
+    if (!mounted) return;
     _scannerController.start();
     setState(() {
       _isProcessing = false;
@@ -243,16 +265,12 @@ class _ScannerScreenState extends State<ScannerScreen> {
         title: const Text('Scan to Receive Stock'),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back),
-          onPressed: () {
-            _scannerController.dispose();
-            Navigator.pop(context);
-          },
+          onPressed: () => Navigator.pop(context),
         ),
       ),
       body: AppBackground(
         child: Column(
           children: [
-            // Status indicator
             Container(
               padding: const EdgeInsets.all(8.0),
               color: _isProcessing ? Colors.orange.withOpacity(0.1) : Colors.transparent,

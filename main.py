@@ -459,14 +459,21 @@ def process_voice_audio(
     You are an expert AI assistant for pharmaceutical inventory. Your task is to extract structured data from a user's voice transcription.
     You must parse this text to extract the following fields:
     - name (string, required)
-    - manufacturer (string, optional)
-    - strength (string, optional)
-    - price (float, required)
-    - lot_number (string, required)
+    - manufacturer (string, optional, default to "Unknown" if not mentioned)
+    - strength (string, optional, default to "N/A" if not mentioned)
+    - price (float, required, if not mentioned use 0.0)
+    - lot_number (string, required, if not mentioned generate one like "LOT-VOICE-[timestamp]")
     - quantity (integer, required)
     - expiry_date (string, in "YYYY-MM-DD" format, required)
-    - barcode (string, optional)
+    - barcode (string, optional, can be null)
 
+    IMPORTANT RULES:
+    - DO NOT use null for price or lot_number
+    - If price is not mentioned, use 0.0
+    - If lot_number is not mentioned, generate a unique one with format "LOT-VOICE-YYYYMMDD"
+    - If manufacturer is not mentioned, use "Unknown"
+    - If strength is not mentioned, use "N/A"
+    
     You MUST respond ONLY with a single, valid JSON object containing these fields. Do not add any explanation or conversational text.
 
     User's transcribed text: "{transcribed_text}"
@@ -484,18 +491,47 @@ def process_voice_audio(
         print(f"Groq parsed JSON: {parsed_json_str}")
         parsed_data = json.loads(parsed_json_str)
 
+        # --- STEP 2.5: Validate and fix null values ---
+        if parsed_data.get("price") is None:
+            parsed_data["price"] = 0.0
+            print("Warning: price was null, defaulting to 0.0")
+        
+        if parsed_data.get("lot_number") is None or not parsed_data.get("lot_number"):
+            parsed_data["lot_number"] = f"LOT-VOICE-{datetime.now().strftime('%Y%m%d%H%M%S')}"
+            print(f"Warning: lot_number was null, generated: {parsed_data['lot_number']}")
+        
+        if parsed_data.get("manufacturer") is None:
+            parsed_data["manufacturer"] = "Unknown"
+        
+        if parsed_data.get("strength") is None:
+            parsed_data["strength"] = "N/A"
+
+        # Convert string values to proper types if needed
+        try:
+            parsed_data["price"] = float(parsed_data["price"])
+        except (ValueError, TypeError):
+            parsed_data["price"] = 0.0
+        
+        try:
+            parsed_data["quantity"] = int(parsed_data["quantity"])
+        except (ValueError, TypeError):
+            raise HTTPException(status_code=400, detail="Quantity must be a valid number")
+
+        print(f"Cleaned data: {parsed_data}")
+        
         smart_request = schemas.SmartCreateRequest(**parsed_data)
 
         # --- STEP 3: Call our reusable helper to save to the database ---
         return _smart_create_db_entry(smart_request, db, user_id=current_user.id)
 
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"Error processing voice utterance with Groq: {e}")
         error_detail = str(e)
         if 'parsed_json_str' in locals():
             error_detail += f" | Raw Model Output: {parsed_json_str}"
         raise HTTPException(status_code=400, detail=f"Could not parse the voice input. Please be more specific. Details: {error_detail}")
-
 @app.post("/chatbot/query")
 def chatbot_query(
     request: dict, 
