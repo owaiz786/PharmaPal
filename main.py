@@ -59,25 +59,39 @@ def get_db():
         db.close()
 
 def _smart_create_db_entry(data: schemas.SmartCreateRequest, db: Session):
-    """Safely create a medicine and its first inventory entry, or update existing one if barcode repeats."""
+    """
+    Safely creates a new medicine and its first inventory item.
+    Handles both voice input (no barcode) and scan input (with barcode).
+    Includes debugging prints and robust error handling.
+    """
+    # --- STEP 1: DEBUGGING PRINT ---
+    # This will show us the exact data coming from Groq or the form
+    print("\n--- ATTEMPTING TO SAVE TO DATABASE ---")
+    print(f"Data received for validation: {data.dict()}")
+    print("------------------------------------\n")
+    
     try:
-        # Check if medicine already exists by barcode
-        existing_medicine = db.query(models.Medicine).filter(models.Medicine.barcode == data.barcode).first()
+        # --- STEP 2: HANDLE BARCODE LOGIC (Your existing logic) ---
+        # If a barcode is provided, check if the medicine already exists.
+        if data.barcode:
+            existing_medicine = db.query(models.Medicine).filter(models.Medicine.barcode == data.barcode).first()
+            if existing_medicine:
+                print(f"Found existing medicine '{existing_medicine.name}' via barcode. Adding new batch.")
+                # If medicine exists, just add the new inventory batch to it
+                new_inventory_item = models.InventoryItem(
+                    medicine_id=existing_medicine.id,
+                    lot_number=data.lot_number,
+                    quantity=data.quantity,
+                    expiry_date=data.expiry_date
+                )
+                db.add(new_inventory_item)
+                db.commit()
+                db.refresh(existing_medicine)
+                return existing_medicine
 
-        if existing_medicine:
-            # If medicine exists, just add a new inventory batch
-            new_inventory_item = models.InventoryItem(
-                medicine_id=existing_medicine.id,
-                lot_number=data.lot_number,
-                quantity=data.quantity,
-                expiry_date=data.expiry_date
-            )
-            db.add(new_inventory_item)
-            db.commit()
-            db.refresh(existing_medicine)
-            return existing_medicine
-
-        # Otherwise, create new medicine and its inventory
+        # --- STEP 3: CREATE NEW MEDICINE (For voice or new scans) ---
+        # If no barcode was provided (voice input), or if the barcode was new.
+        print(f"Creating new medicine catalog entry for '{data.name}'.")
         new_medicine = models.Medicine(
             barcode=data.barcode,
             name=data.name,
@@ -90,6 +104,8 @@ def _smart_create_db_entry(data: schemas.SmartCreateRequest, db: Session):
         db.commit()
         db.refresh(new_medicine)
 
+        # --- STEP 4: CREATE THE INVENTORY BATCH ---
+        print(f"Creating new inventory batch for '{data.name}' with lot '{data.lot_number}'.")
         new_inventory_item = models.InventoryItem(
             medicine_id=new_medicine.id,
             lot_number=data.lot_number,
@@ -98,12 +114,22 @@ def _smart_create_db_entry(data: schemas.SmartCreateRequest, db: Session):
         )
         db.add(new_inventory_item)
         db.commit()
-        db.refresh(new_medicine)
+        db.refresh(new_medicine) # Refresh the medicine object to include the new item
+        
+        print("--- DATABASE SAVE SUCCESSFUL ---")
         return new_medicine
 
-    except IntegrityError:
+    # --- STEP 5: ROBUST ERROR HANDLING ---
+    except IntegrityError as e:
+        # This catches specific database errors, like a UNIQUE constraint violation
+        print(f"!!! DATABASE INTEGRITY ERROR: {e} !!!")
+        db.rollback() # Important: undo the failed transaction
+        raise HTTPException(status_code=409, detail=f"A medicine with this barcode ('{data.barcode}') already exists. The operation was cancelled.")
+    except Exception as e:
+        # This catches any other unexpected errors during the process
+        print(f"!!! UNEXPECTED DATABASE ERROR: {e} !!!")
         db.rollback()
-        raise HTTPException(status_code=400, detail="Medicine with this barcode already exists. Inventory was not added.")
+        raise HTTPException(status_code=500, detail=f"An unexpected error occurred while saving to the database: {e}")
 
 def find_and_parse_date(text_block: str):
     date_pattern = r'(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}[/-]\d{1,2}[/-]\d{1,2}|\d{1,2}[ -](?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[ -]\d{2,4})'
@@ -360,10 +386,16 @@ def chatbot_query(request: dict, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Message is required.")
     
     if not client.api_key:
-         print("!!! GROQ API KEY NOT LOADED. CHECK .ENV FILE. !!!")
-         raise HTTPException(status_code=500, detail="API key not configured.")
+        print("!!! GROQ API KEY NOT LOADED. CHECK .ENV FILE. !!!")
+        raise HTTPException(status_code=500, detail="API key not configured.")
     
     messages = [{"role": "user", "content": user_message}]
+    
+    # Define available tool functions
+    available_functions = {
+        "get_stock_quantity": get_stock_quantity_from_db,
+        "find_expiring_medicines": find_expiring_medicines_from_db,
+    }
     
     tools = [
         {
@@ -373,7 +405,9 @@ def chatbot_query(request: dict, db: Session = Depends(get_db)):
                 "description": "Get the total stock quantity for a specific medicine.",
                 "parameters": {
                     "type": "object",
-                    "properties": { "medicine_name": {"type": "string", "description": "The name of the medicine, e.g., 'Paracetamol'"}},
+                    "properties": { 
+                        "medicine_name": {"type": "string", "description": "The name of the medicine, e.g., 'Paracetamol'"}
+                    },
                     "required": ["medicine_name"],
                 },
             },
@@ -385,7 +419,9 @@ def chatbot_query(request: dict, db: Session = Depends(get_db)):
                 "description": "Find all medicine batches that are expiring within a given number of days.",
                 "parameters": {
                     "type": "object",
-                    "properties": { "days_limit": {"type": "integer", "description": "Number of days from today to check for expiry, e.g., 30"}},
+                    "properties": { 
+                        "days_limit": {"type": "integer", "description": "Number of days from today to check for expiry, e.g., 30"}
+                    },
                     "required": ["days_limit"],
                 },
             },
@@ -393,23 +429,20 @@ def chatbot_query(request: dict, db: Session = Depends(get_db)):
     ]
 
     try:
+        # --- Step 1: Send initial message to Groq ---
         response = client.chat.completions.create(
             model="llama-3.1-8b-instant",
             messages=messages,
             tools=tools,
             tool_choice="auto",
         )
+        
         response_message = response.choices[0].message
-        tool_calls = response_message.tool_calls
+        tool_calls = getattr(response_message, "tool_calls", None)
+        final_response = None
 
+        # --- Step 2: Handle function calling logic ---
         if tool_calls:
-            messages.append({
-    "tool_call_id": tool_call.id,
-    "role": "tool",
-    "name": function_name,
-    "content": str(function_response), # Explicitly cast the content to a string
-      })
-
             for tool_call in tool_calls:
                 function_name = tool_call.function.name
                 function_args = json.loads(tool_call.function.arguments)
@@ -419,18 +452,24 @@ def chatbot_query(request: dict, db: Session = Depends(get_db)):
                 print(f"Arguments: {function_args}")
                 print("-----------------------------\n")
                 
+                if function_name not in available_functions:
+                    raise HTTPException(status_code=400, detail=f"Unknown function: {function_name}")
+                
                 function_to_call = available_functions[function_name]
                 function_args["db"] = db
                 
+                # Execute the function
                 function_response = function_to_call(**function_args)
                 
+                # Append the result back to messages for AI continuation
                 messages.append({
                     "tool_call_id": tool_call.id,
                     "role": "tool",
                     "name": function_name,
-                    "content": function_response,
+                    "content": str(function_response),
                 })
             
+            # --- Step 3: Ask the model to summarize the function output ---
             second_response = client.chat.completions.create(
                 model="llama-3.1-8b-instant",
                 messages=messages,
@@ -443,4 +482,4 @@ def chatbot_query(request: dict, db: Session = Depends(get_db)):
 
     except Exception as e:
         print(f"Error communicating with Groq or database: {e}")
-        raise HTTPException(status_code=500, detail="An error occurred with the chatbot service.")
+        raise HTTPException(status_code=500, detail=f"Chatbot internal error: {str(e)}")
