@@ -57,6 +57,17 @@ class ApiService {
     }
   }
 
+  Future<Map<String, dynamic>> parseMedicineText(String extractedText) async {
+  final url = Uri.parse('$_baseUrl/chatbot/parse-medicine-text');
+  final body = json.encode({'extracted_text': extractedText});
+  final response = await http.post(url, headers: _jsonHeaders, body: body);
+  if (response.statusCode == 200) {
+    return json.decode(response.body);
+  } else {
+    throw Exception('Failed to parse medicine text. Status: ${response.statusCode}');
+  }
+}
+
   // ... REST OF YOUR METHODS REMAIN THE SAME ...
   Future<Medicine> fetchMedicineById(int medicineId) async {
     final url = Uri.parse('$_baseUrl/medicines/$medicineId');

@@ -676,3 +676,55 @@ def chatbot_query(
     except Exception as e:
         print(f"Error communicating with Groq or database: {e}")
         raise HTTPException(status_code=500, detail=f"Chatbot internal error: {str(e)}")
+    
+@app.post("/chatbot/parse-medicine-text")
+def parse_medicine_text(
+    request: dict,
+    current_user: models.User = Depends(auth.get_current_active_user)
+):
+    """Parse OCR-extracted text to extract medicine information using Groq"""
+    extracted_text = request.get("extracted_text")
+    if not extracted_text:
+        raise HTTPException(status_code=400, detail="Extracted text is required.")
+    
+    parsing_prompt = f"""
+    You are an expert pharmaceutical AI assistant. Your task is to extract structured medicine information from OCR text.
+    
+    Extract the following fields from the text:
+    - name (string, required): The medicine name
+    - manufacturer (string, optional): The manufacturer company
+    - strength (string, optional): The strength/dosage (e.g., "500mg", "10mg/5ml")
+    - price (float, optional): The price if mentioned
+    - lot_number (string, optional): Batch/Lot number if visible
+    - expiry_date (string, optional): Expiry date in "YYYY-MM-DD" format if visible
+    
+    IMPORTANT RULES:
+    - Return ONLY a valid JSON object with these fields
+    - Use null for missing fields
+    - For dates, convert to YYYY-MM-DD format
+    - For strength, include units (mg, ml, etc.)
+    - Be accurate and conservative - only extract clearly visible information
+    
+    OCR Text to parse:
+    "{extracted_text}"
+    
+    Respond with JSON only:
+    """
+    
+    try:
+        response = client.chat.completions.create(
+            model="llama-3.1-8b-instant",
+            messages=[{"role": "user", "content": parsing_prompt}],
+            temperature=0.1,
+            response_format={"type": "json_object"},
+        )
+        
+        parsed_json_str = response.choices[0].message.content
+        print(f"Groq parsed medicine data: {parsed_json_str}")
+        parsed_data = json.loads(parsed_json_str)
+        
+        return parsed_data
+        
+    except Exception as e:
+        print(f"Error parsing medicine text with Groq: {e}")
+        raise HTTPException(status_code=400, detail=f"Could not parse the medicine text: {str(e)}")    

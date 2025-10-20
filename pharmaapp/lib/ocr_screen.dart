@@ -20,7 +20,8 @@ class _OcrScreenState extends State<OcrScreen> {
   File? _selectedImage;
   String? _extractedText;
   bool _isProcessing = false;
-
+  bool _isAIParsing = false;
+  Map<String, dynamic>? _parsedData;
   @override
   void initState() {
     super.initState();
@@ -83,6 +84,7 @@ class _OcrScreenState extends State<OcrScreen> {
     setState(() {
       _isProcessing = true;
       _extractedText = null;
+      _parsedData = null; // Reset parsed data
     });
     try {
       final result = await _apiService.extractTextFromImage(_selectedImage!);
@@ -103,6 +105,84 @@ class _OcrScreenState extends State<OcrScreen> {
     }
   }
 
+  Future<void> _parseWithAI() async {
+    if (_extractedText == null || _extractedText!.isEmpty) return;
+    
+    setState(() {
+      _isAIParsing = true;
+    });
+    
+    try {
+      final parsedData = await _apiService.parseMedicineText(_extractedText!);
+      setState(() {
+        _parsedData = parsedData;
+      });
+      
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('AI parsing completed!'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('AI parsing failed: ${e.toString().replaceFirst("Exception: ", "")}'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+    } finally {
+      setState(() {
+        _isAIParsing = false;
+      });
+    }
+  }
+
+  void _navigateToCreateScreen() {
+    // Use AI parsed data if available, otherwise use basic regex parsing
+    final String? name = _parsedData?['name'];
+    final String? manufacturer = _parsedData?['manufacturer'];
+    final String? strength = _parsedData?['strength'];
+    final double? price = _parsedData?['price']?.toDouble();
+    final String? lotNumber = _parsedData?['lot_number'];
+    
+    // Parse date from AI or use regex fallback
+    DateTime? expiryDate;
+    if (_parsedData?['expiry_date'] != null) {
+      try {
+        expiryDate = DateTime.parse(_parsedData!['expiry_date']);
+      } catch (e) {
+        print('Failed to parse AI date: ${_parsedData!['expiry_date']}');
+      }
+    }
+    if (expiryDate == null) {
+      expiryDate = _parseDate(_extractedText!);
+    }
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => CreateMedicineScreen(
+          ocrPrice: price ?? _parsePrice(_extractedText!),
+          ocrExpiryDate: expiryDate,
+          // Pre-fill other fields from AI parsing
+          prefillName: name,
+          prefillManufacturer: manufacturer,
+          prefillStrength: strength,
+          prefillLotNumber: lotNumber,
+        ),
+      ),
+    ).then((success) {
+      if (success == true) {
+        setState(() {
+          _selectedImage = null;
+          _extractedText = null;
+          _parsedData = null;
+        });
+      }
+    });
+  }
+
   // --- BUILD METHOD IS RESTRUCTURED FOR BETTER UX ---
   @override
   Widget build(BuildContext context) {
@@ -118,7 +198,7 @@ class _OcrScreenState extends State<OcrScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // 1. Image Preview Area
+                // Image Preview Area (unchanged)
                 Container(
                   height: 250,
                   decoration: BoxDecoration(
@@ -144,7 +224,7 @@ class _OcrScreenState extends State<OcrScreen> {
                 
                 const SizedBox(height: 24),
                 
-                // 2. Image Selection Buttons (Always Visible)
+                // Image Selection Buttons (unchanged)
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
@@ -163,7 +243,7 @@ class _OcrScreenState extends State<OcrScreen> {
                 
                 const SizedBox(height: 24),
 
-                // 3. Process Button (Enabled only when an image is selected)
+                // Process Button
                 ElevatedButton(
                   onPressed: (_selectedImage == null || _isProcessing) ? null : _processImage,
                   child: _isProcessing
@@ -175,7 +255,26 @@ class _OcrScreenState extends State<OcrScreen> {
                       : const Text('Extract Text'),
                 ),
 
-                // 4. Results Area (Visible only after processing)
+                // AI Parse Button (new)
+                if (_extractedText != null && !_isProcessing)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12.0),
+                    child: ElevatedButton.icon(
+                      onPressed: _isAIParsing ? null : _parseWithAI,
+                      icon: _isAIParsing 
+                          ? const SizedBox(height: 16, width: 16, child: CircularProgressIndicator(strokeWidth: 2))
+                          : const Icon(Icons.auto_awesome),
+                      label: _isAIParsing 
+                          ? const Text('AI Parsing...')
+                          : const Text('AI Smart Parse'),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.purple,
+                        foregroundColor: Colors.white,
+                      ),
+                    ),
+                  ),
+
+                // Results Area
                 if (_extractedText != null)
                   Padding(
                     padding: const EdgeInsets.only(top: 24.0),
@@ -187,35 +286,52 @@ class _OcrScreenState extends State<OcrScreen> {
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text('Extracted Text:', style: Theme.of(context).textTheme.titleMedium),
+                                Row(
+                                  children: [
+                                    Text('Extracted Text:', style: Theme.of(context).textTheme.titleMedium),
+                                    if (_parsedData != null)
+                                      Container(
+                                        margin: const EdgeInsets.only(left: 8),
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                                        decoration: BoxDecoration(
+                                          color: Colors.green,
+                                          borderRadius: BorderRadius.circular(12),
+                                        ),
+                                        child: const Text(
+                                          'AI Parsed',
+                                          style: TextStyle(color: Colors.white, fontSize: 12),
+                                        ),
+                                      ),
+                                  ],
+                                ),
                                 const SizedBox(height: 8),
                                 SelectableText(_extractedText!),
+                                
+                                // Show AI parsed data preview
+                                if (_parsedData != null) ...[
+                                  const SizedBox(height: 16),
+                                  const Divider(),
+                                  Text('AI Extracted Data:', style: Theme.of(context).textTheme.titleSmall),
+                                  const SizedBox(height: 8),
+                                  ..._parsedData!.entries.where((entry) => entry.value != null).map(
+                                    (entry) => Padding(
+                                      padding: const EdgeInsets.symmetric(vertical: 2.0),
+                                      child: Row(
+                                        children: [
+                                          Text('${entry.key}: ', style: const TextStyle(fontWeight: FontWeight.bold)),
+                                          Expanded(child: Text(entry.value.toString())),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
                               ],
                             ),
                           ),
                         ),
                         const SizedBox(height: 16),
                         ElevatedButton(
-                          onPressed: () {
-                            final price = _parsePrice(_extractedText!);
-                            final expiry = _parseDate(_extractedText!);
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => CreateMedicineScreen(
-                                  ocrPrice: price,
-                                  ocrExpiryDate: expiry,
-                                ),
-                              ),
-                            ).then((success) {
-                              if (success == true) {
-                                setState(() {
-                                  _selectedImage = null;
-                                  _extractedText = null;
-                                });
-                              }
-                            });
-                          },
+                          onPressed: _navigateToCreateScreen,
                           child: const Text('Continue to Add Item'),
                         ),
                       ],

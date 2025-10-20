@@ -55,7 +55,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
                 if (!mounted) return;
                 navigator.pop(); // Close dialog
                 
-                // Wait a bit for dialog to close, then navigate back
+                // Wait a bit for dialog to close, then navigate back to home
                 await Future.delayed(const Duration(milliseconds: 100));
                 if (mounted) {
                   Navigator.of(context).pop(); // Go back to home page
@@ -68,7 +68,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
                 }
               } catch (e) {
                 if (!mounted) return;
-                navigator.pop(); // Close dialog
+                navigator.pop(); // Close dialog on error
                 scaffoldMessenger.showSnackBar(
                   SnackBar(
                     content: Text(e.toString().replaceFirst("Exception: ", "")),
@@ -97,13 +97,16 @@ class _ScannerScreenState extends State<ScannerScreen> {
     setState(() { _isProcessing = true; });
     _scannerController.stop();
 
+    // Check if it's a GS1 barcode
     if (barcodeValue.contains('(01)') && barcodeValue.contains('(10)') && barcodeValue.contains('(17)')) {
       _showQuantityDialog(barcodeValue);
     } else {
       try {
         final medicine = await apiService.fetchMedicineByBarcode(barcodeValue);
+        if (!mounted) return;
         _showAddInventoryDialog(medicine);
       } catch (e) {
+        if (!mounted) return;
         if (e.toString().contains('not found')) {
           final result = await navigator.push<Medicine>(
             MaterialPageRoute(builder: (context) => CreateMedicineScreen(barcode: barcodeValue)),
@@ -130,6 +133,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
     final apiService = Provider.of<ApiService>(context, listen: false);
     final lotNumberController = TextEditingController();
     final quantityController = TextEditingController();
+    // Default expiry date is 1 year from now
     final expiryDate = ValueNotifier<DateTime>(DateTime.now().add(const Duration(days: 365)));
 
     showDialog(
@@ -219,7 +223,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
                   if (!mounted) return;
                   navigator.pop(); // Close dialog
                   
-                  // Wait a bit for dialog to close, then navigate back
+                  // Wait a bit for dialog to close, then navigate back to home
                   await Future.delayed(const Duration(milliseconds: 100));
                   if (mounted) {
                     Navigator.of(context).pop(); // Go back to home page
@@ -232,7 +236,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
                   }
                 } catch (e) {
                   if (!mounted) return;
-                  navigator.pop(); // Close dialog
+                  navigator.pop(); // Close dialog on error
                   scaffoldMessenger.showSnackBar(
                     SnackBar(
                       content: Text(e.toString()),
@@ -271,6 +275,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
       body: AppBackground(
         child: Column(
           children: [
+            // Status indicator at the top
             Container(
               padding: const EdgeInsets.all(8.0),
               color: _isProcessing ? Colors.orange.withOpacity(0.1) : Colors.transparent,
@@ -314,6 +319,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
                               controller: _scannerController,
                               onDetect: _onBarcodeDetect,
                             ),
+                            // Processing overlay
                             if (_isProcessing)
                               Container(
                                 color: Colors.black.withOpacity(0.7),
@@ -336,6 +342,7 @@ class _ScannerScreenState extends State<ScannerScreen> {
                       ),
                     ),
                     const SizedBox(height: 20),
+                    // Cancel button when processing
                     if (_isProcessing)
                       ElevatedButton(
                         onPressed: _resetScanner,

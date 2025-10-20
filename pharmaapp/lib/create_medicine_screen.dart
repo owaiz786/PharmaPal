@@ -6,16 +6,23 @@ import 'package:pharmaapp/medicine.dart';
 import 'package:intl/intl.dart';
 
 class CreateMedicineScreen extends StatefulWidget {
-  // We can now pre-fill the form with data from different sources
   final String? barcode;
   final double? ocrPrice;
   final DateTime? ocrExpiryDate;
+  final String? prefillName;
+  final String? prefillManufacturer;
+  final String? prefillStrength;
+  final String? prefillLotNumber;
 
   const CreateMedicineScreen({
     super.key,
     this.barcode,
     this.ocrPrice,
     this.ocrExpiryDate,
+    this.prefillName,
+    this.prefillManufacturer,
+    this.prefillStrength,
+    this.prefillLotNumber,
   });
 
   @override
@@ -27,6 +34,7 @@ class _CreateMedicineScreenState extends State<CreateMedicineScreen> {
   late final ApiService _apiService; // Change to late final
 
   // Add controllers for the new inventory fields
+  
   late TextEditingController _nameController;
   late TextEditingController _manufacturerController;
   late TextEditingController _strengthController;
@@ -43,11 +51,11 @@ class _CreateMedicineScreenState extends State<CreateMedicineScreen> {
     _apiService = ApiService(AuthService());
     
     // Pre-fill the form with any data passed to the screen
-    _nameController = TextEditingController();
-    _manufacturerController = TextEditingController();
-    _strengthController = TextEditingController();
+    _nameController = TextEditingController(text: widget.prefillName ?? '');
+    _manufacturerController = TextEditingController(text: widget.prefillManufacturer ?? '');
+    _strengthController = TextEditingController(text: widget.prefillStrength ?? '');
     _priceController = TextEditingController(text: widget.ocrPrice?.toString() ?? '');
-    _lotNumberController = TextEditingController();
+    _lotNumberController = TextEditingController(text: widget.prefillLotNumber ?? '');
     _quantityController = TextEditingController();
     _expiryDate = widget.ocrExpiryDate ?? DateTime.now();
   }
