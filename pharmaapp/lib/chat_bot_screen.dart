@@ -2,6 +2,7 @@
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 import 'package:pharmaapp/api_service.dart';
+import 'package:pharmaapp/auth_service.dart';
 
 class ChatbotScreen extends StatefulWidget {
   const ChatbotScreen({super.key});
@@ -13,12 +14,16 @@ class ChatbotScreen extends StatefulWidget {
 class _ChatbotScreenState extends State<ChatbotScreen> {
   final List<_Message> _messages = [];
   final TextEditingController _controller = TextEditingController();
-  final ApiService _apiService = ApiService();
+  late final ApiService _apiService;
   final String _botName = 'PharmPal';
 
   @override
   void initState() {
     super.initState();
+    
+    // Initialize ApiService with AuthService
+    _apiService = ApiService(AuthService());
+    
     // Initial greeting
     _addMessage(_Message(
       id: const Uuid().v4(),
@@ -65,7 +70,7 @@ class _ChatbotScreenState extends State<ChatbotScreen> {
 
       _addMessage(_Message(
         id: const Uuid().v4(),
-        text: 'Sorry, an error occurred.',
+        text: 'Sorry, an error occurred: $e',
         isUser: false,
       ));
     }

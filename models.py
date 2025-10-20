@@ -1,26 +1,38 @@
 # models.py
-from sqlalchemy import Column, Integer, String, Float, Date, ForeignKey
+from sqlalchemy import Column, Integer, String, Float, Date, ForeignKey,Boolean
 from sqlalchemy.orm import relationship
 from database import Base # Use a relative import
 
 # Model for the medicine catalog
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(Integer, primary_key=True, index=True)
+    username = Column(String, unique=True, index=True, nullable=False)
+    hashed_password = Column(String, nullable=False)
+    is_active = Column(Boolean, default=True)
+
+    # This creates the other side of the relationship
+    medicines = relationship("Medicine", back_populates="owner")
 class Medicine(Base):
     __tablename__ = "medicines"
-
+    
     id = Column(Integer, primary_key=True, index=True)
     barcode = Column(String, unique=True, index=True, nullable=True)
     name = Column(String, index=True, nullable=False)
     manufacturer = Column(String)
     strength = Column(String)
-    
-    # --- ADD THESE TWO LINES BACK ---
     price = Column(Float, nullable=False)
     expiry_date = Column(Date, nullable=False)
-    # --------------------------------
+    
+    # --- ADD THIS RELATIONSHIP ---
+    user_id = Column(Integer, ForeignKey("users.id"))
+    owner = relationship("User", back_populates="medicines")
+    # ---------------------------
 
-    inventory_items = relationship("InventoryItem", back_populates="medicine")
+    inventory_items = relationship("InventoryItem", back_populates="medicine", cascade="all, delete-orphan")
 
-# Model for a specific batch of medicine in stock
+# --- UPDATE THE INVENTORYITEM MODEL ---
 class InventoryItem(Base):
     __tablename__ = "inventory_items"
 
@@ -29,8 +41,5 @@ class InventoryItem(Base):
     expiry_date = Column(Date, nullable=False)
     quantity = Column(Integer, nullable=False)
     
-    # This is the foreign key linking to the 'medicines' table
     medicine_id = Column(Integer, ForeignKey("medicines.id"))
-
-    # This completes the relationship link
     medicine = relationship("Medicine", back_populates="inventory_items")

@@ -2,9 +2,10 @@
 import 'package:flutter/material.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 import 'package:pharmaapp/api_service.dart';
+import 'package:pharmaapp/auth_service.dart';
 import 'package:pharmaapp/medicine.dart';
 import 'package:pharmaapp/create_medicine_screen.dart';
-import 'package:pharmaapp/app_background.dart'; // UPDATED: Import the background widget
+import 'package:pharmaapp/app_background.dart';
 
 class ScannerScreen extends StatefulWidget {
   const ScannerScreen({super.key});
@@ -15,10 +16,15 @@ class ScannerScreen extends StatefulWidget {
 
 class _ScannerScreenState extends State<ScannerScreen> {
   final MobileScannerController _scannerController = MobileScannerController();
-  final ApiService _apiService = ApiService();
+  late final ApiService _apiService;
   bool _isProcessing = false;
 
-  // --- ALL YOUR LOGIC FUNCTIONS ARE UNCHANGED ---
+  @override
+  void initState() {
+    super.initState();
+    _apiService = ApiService(AuthService());
+  }
+
   void _showQuantityDialog(String gs1Data) {
     final quantityController = TextEditingController();
     showDialog(
@@ -33,7 +39,13 @@ class _ScannerScreenState extends State<ScannerScreen> {
           decoration: const InputDecoration(labelText: 'Quantity Received'),
         ),
         actions: [
-          TextButton(onPressed: () { Navigator.pop(context); _resetScanner(); }, child: const Text('Cancel')),
+          TextButton(
+            onPressed: () {
+              Navigator.pop(context);
+              _resetScanner();
+            },
+            child: const Text('Cancel'),
+          ),
           ElevatedButton(
             onPressed: () async {
               final quantity = int.tryParse(quantityController.text) ?? 0;
@@ -41,15 +53,27 @@ class _ScannerScreenState extends State<ScannerScreen> {
 
               try {
                 await _apiService.addInventoryFromGS1(gs1Data, quantity);
-                Navigator.pop(context);
-                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('GS1 Inventory added successfully!'), backgroundColor: Colors.green));
-                _resetScanner();
+                Navigator.pop(context); // Close dialog first
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('GS1 Inventory added successfully!'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+                _resetScanner(); // Then reset scanner
               } catch (e) {
-                ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString().replaceFirst("Exception: ", "")), backgroundColor: Colors.red));
+                Navigator.pop(context); // Close dialog on error too
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(e.toString().replaceFirst("Exception: ", "")),
+                    backgroundColor: Colors.red,
+                  ),
+                );
+                _resetScanner(); // Reset scanner even on error
               }
             },
             child: const Text('Submit'),
-          )
+          ),
         ],
       ),
     );
@@ -59,8 +83,11 @@ class _ScannerScreenState extends State<ScannerScreen> {
     if (_isProcessing) return;
     final barcodeValue = capture.barcodes.first.rawValue;
     if (barcodeValue == null) return;
-    setState(() { _isProcessing = true; });
-    _scannerController.stop();
+    
+    setState(() {
+      _isProcessing = true;
+    });
+    _scannerController.stop(); // Stop scanner during processing
 
     if (barcodeValue.contains('(01)') && barcodeValue.contains('(10)') && barcodeValue.contains('(17)')) {
       _showQuantityDialog(barcodeValue);
@@ -72,16 +99,23 @@ class _ScannerScreenState extends State<ScannerScreen> {
         if (e.toString().contains('not found')) {
           final result = await Navigator.push<Medicine>(
             context,
-            MaterialPageRoute(builder: (context) => CreateMedicineScreen(barcode: barcodeValue)),
+            MaterialPageRoute(
+              builder: (context) => CreateMedicineScreen(barcode: barcodeValue),
+            ),
           );
           if (result != null) {
             _showAddInventoryDialog(result);
           } else {
-            _resetScanner();
+            _resetScanner(); // Reset if user cancels creation
           }
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(e.toString().replaceFirst("Exception: ", "")), backgroundColor: Colors.red));
-          _resetScanner();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(e.toString().replaceFirst("Exception: ", "")),
+              backgroundColor: Colors.red,
+            ),
+          );
+          _resetScanner(); // Reset on other errors
         }
       }
     }
@@ -102,8 +136,15 @@ class _ScannerScreenState extends State<ScannerScreen> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                TextField(controller: lotNumberController, decoration: const InputDecoration(labelText: 'Lot Number')),
-                TextField(controller: quantityController, decoration: const InputDecoration(labelText: 'Quantity'), keyboardType: TextInputType.number),
+                TextField(
+                  controller: lotNumberController,
+                  decoration: const InputDecoration(labelText: 'Lot Number'),
+                ),
+                TextField(
+                  controller: quantityController,
+                  decoration: const InputDecoration(labelText: 'Quantity'),
+                  keyboardType: TextInputType.number,
+                ),
                 const SizedBox(height: 20),
                 ValueListenableBuilder<DateTime>(
                   valueListenable: expiryDate,
@@ -131,25 +172,52 @@ class _ScannerScreenState extends State<ScannerScreen> {
             ),
           ),
           actions: [
-            TextButton(onPressed: () { Navigator.pop(context); _resetScanner(); }, child: const Text('Cancel')),
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+                _resetScanner();
+              },
+              child: const Text('Cancel'),
+            ),
             ElevatedButton(
               onPressed: () async {
+                final quantity = int.tryParse(quantityController.text) ?? 0;
+                if (quantity <= 0) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Please enter a valid quantity'),
+                      backgroundColor: Colors.orange,
+                    ),
+                  );
+                  return;
+                }
+
                 try {
                   await _apiService.addInventoryItem(
                     medicineId: medicine.id,
-                    lotNumber: lotNumberController.text,
-                    quantity: int.parse(quantityController.text),
+                    lotNumber: lotNumberController.text.isEmpty 
+                        ? 'LOT-${DateTime.now().millisecondsSinceEpoch}' 
+                        : lotNumberController.text,
+                    quantity: quantity,
                     expiryDate: expiryDate.value,
                   );
-                  Navigator.pop(context);
+                  Navigator.pop(context); // Close dialog first
                   ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Inventory added successfully!'), backgroundColor: Colors.green),
+                    const SnackBar(
+                      content: Text('Inventory added successfully!'),
+                      backgroundColor: Colors.green,
+                    ),
                   );
-                  _resetScanner();
+                  _resetScanner(); // Then reset scanner
                 } catch (e) {
+                  Navigator.pop(context); // Close dialog on error
                   ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
+                    SnackBar(
+                      content: Text(e.toString()),
+                      backgroundColor: Colors.red,
+                    ),
                   );
+                  _resetScanner(); // Reset scanner on error too
                 }
               },
               child: const Text('Submit'),
@@ -161,42 +229,105 @@ class _ScannerScreenState extends State<ScannerScreen> {
   }
 
   void _resetScanner() {
-    setState(() { _isProcessing = false; });
+    // Simply start the scanner without checking if it's already starting
     _scannerController.start();
+    setState(() {
+      _isProcessing = false;
+    });
   }
 
-  // UPDATED: The build method is now simplified and includes the AppBackground
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // The drawer is removed, and this will now show a back arrow
       appBar: AppBar(
         title: const Text('Scan to Receive Stock'),
+        leading: IconButton(
+          icon: const Icon(Icons.arrow_back),
+          onPressed: () {
+            _scannerController.dispose();
+            Navigator.pop(context);
+          },
+        ),
       ),
       body: AppBackground(
-        child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Text(
-                'Point camera at a barcode',
-                style: TextStyle(fontSize: 18),
-              ),
-              const SizedBox(height: 20),
-              SizedBox(
-                height: 300,
-                width: 300,
-                // Using a ClipRRect to give the scanner view rounded corners
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(12),
-                  child: MobileScanner(
-                    controller: _scannerController,
-                    onDetect: _onBarcodeDetect,
+        child: Column(
+          children: [
+            // Status indicator
+            Container(
+              padding: const EdgeInsets.all(8.0),
+              color: _isProcessing ? Colors.orange.withOpacity(0.1) : Colors.transparent,
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    _isProcessing ? Icons.hourglass_top : Icons.qr_code_scanner,
+                    color: _isProcessing ? Colors.orange : Colors.green,
+                    size: 16,
                   ),
+                  const SizedBox(width: 8),
+                  Text(
+                    _isProcessing ? 'Processing...' : 'Ready to scan',
+                    style: TextStyle(
+                      color: _isProcessing ? Colors.orange : Colors.green,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: Center(
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Text(
+                      'Point camera at a barcode',
+                      style: TextStyle(fontSize: 18),
+                    ),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      height: 300,
+                      width: 300,
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: Stack(
+                          children: [
+                            MobileScanner(
+                              controller: _scannerController,
+                              onDetect: _onBarcodeDetect,
+                            ),
+                            if (_isProcessing)
+                              Container(
+                                color: Colors.black.withOpacity(0.7),
+                                child: const Center(
+                                  child: Column(
+                                    mainAxisAlignment: MainAxisAlignment.center,
+                                    children: [
+                                      CircularProgressIndicator(color: Colors.white),
+                                      SizedBox(height: 16),
+                                      Text(
+                                        'Processing...',
+                                        style: TextStyle(color: Colors.white, fontSize: 16),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    if (_isProcessing)
+                      ElevatedButton(
+                        onPressed: _resetScanner,
+                        child: const Text('Cancel & Resume Scanning'),
+                      ),
+                  ],
                 ),
               ),
-            ],
-          ),
+            ),
+          ],
         ),
       ),
     );

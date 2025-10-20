@@ -1,6 +1,7 @@
 // lib/create_medicine_screen.dart
 import 'package:flutter/material.dart';
 import 'package:pharmaapp/api_service.dart';
+import 'package:pharmaapp/auth_service.dart'; // Add this import
 import 'package:pharmaapp/medicine.dart';
 import 'package:intl/intl.dart';
 
@@ -23,7 +24,7 @@ class CreateMedicineScreen extends StatefulWidget {
 
 class _CreateMedicineScreenState extends State<CreateMedicineScreen> {
   final _formKey = GlobalKey<FormState>();
-  final _apiService = ApiService();
+  late final ApiService _apiService; // Change to late final
 
   // Add controllers for the new inventory fields
   late TextEditingController _nameController;
@@ -37,6 +38,10 @@ class _CreateMedicineScreenState extends State<CreateMedicineScreen> {
   @override
   void initState() {
     super.initState();
+    
+    // Initialize ApiService with AuthService
+    _apiService = ApiService(AuthService());
+    
     // Pre-fill the form with any data passed to the screen
     _nameController = TextEditingController();
     _manufacturerController = TextEditingController();
@@ -87,21 +92,50 @@ class _CreateMedicineScreenState extends State<CreateMedicineScreen> {
               
               // --- Medicine Fields ---
               const Text("Product Details", style: TextStyle(fontWeight: FontWeight.bold)),
-              TextFormField(controller: _nameController, decoration: const InputDecoration(labelText: 'Medicine Name'), validator: (value) => value!.isEmpty ? 'Please enter a name' : null),
-              TextFormField(controller: _manufacturerController, decoration: const InputDecoration(labelText: 'Manufacturer')),
-              TextFormField(controller: _strengthController, decoration: const InputDecoration(labelText: 'Strength (e.g., 500mg)')),
-              TextFormField(controller: _priceController, decoration: const InputDecoration(labelText: 'Price'), keyboardType: TextInputType.number, validator: (value) => value!.isEmpty ? 'Please enter a price' : null),
+              TextFormField(
+                controller: _nameController, 
+                decoration: const InputDecoration(labelText: 'Medicine Name'), 
+                validator: (value) => value!.isEmpty ? 'Please enter a name' : null
+              ),
+              TextFormField(
+                controller: _manufacturerController, 
+                decoration: const InputDecoration(labelText: 'Manufacturer')
+              ),
+              TextFormField(
+                controller: _strengthController, 
+                decoration: const InputDecoration(labelText: 'Strength (e.g., 500mg)')
+              ),
+              TextFormField(
+                controller: _priceController, 
+                decoration: const InputDecoration(labelText: 'Price'), 
+                keyboardType: TextInputType.number, 
+                validator: (value) => value!.isEmpty ? 'Please enter a price' : null
+              ),
               
               const SizedBox(height: 24),
 
               // --- Inventory Fields ---
               const Text("Batch Details", style: TextStyle(fontWeight: FontWeight.bold)),
-              TextFormField(controller: _lotNumberController, decoration: const InputDecoration(labelText: 'Lot Number'), validator: (value) => value!.isEmpty ? 'Please enter a Lot Number' : null),
-              TextFormField(controller: _quantityController, decoration: const InputDecoration(labelText: 'Quantity'), keyboardType: TextInputType.number, validator: (value) => value!.isEmpty ? 'Please enter a quantity' : null),
+              TextFormField(
+                controller: _lotNumberController, 
+                decoration: const InputDecoration(labelText: 'Lot Number'), 
+                validator: (value) => value!.isEmpty ? 'Please enter a Lot Number' : null
+              ),
+              TextFormField(
+                controller: _quantityController, 
+                decoration: const InputDecoration(labelText: 'Quantity'), 
+                keyboardType: TextInputType.number, 
+                validator: (value) => value!.isEmpty ? 'Please enter a quantity' : null
+              ),
               const SizedBox(height: 20),
               InkWell(
                 onTap: () async {
-                  final pickedDate = await showDatePicker(context: context, initialDate: _expiryDate, firstDate: DateTime.now(), lastDate: DateTime(2100));
+                  final pickedDate = await showDatePicker(
+                    context: context, 
+                    initialDate: _expiryDate, 
+                    firstDate: DateTime.now(), 
+                    lastDate: DateTime(2100)
+                  );
                   if (pickedDate != null) {
                     setState(() { _expiryDate = pickedDate; });
                   }

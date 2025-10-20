@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:pharmaapp/api_service.dart';
+import 'package:pharmaapp/auth_service.dart'; // Add this import
 import 'package:pharmaapp/app_background.dart';
 import 'package:pharmaapp/create_medicine_screen.dart';
 import 'package:intl/intl.dart';
@@ -15,10 +16,18 @@ class OcrScreen extends StatefulWidget {
 }
 
 class _OcrScreenState extends State<OcrScreen> {
-  final ApiService _apiService = ApiService();
+  late final ApiService _apiService; // Change to late final
   File? _selectedImage;
   String? _extractedText;
   bool _isProcessing = false;
+
+  @override
+  void initState() {
+    super.initState();
+    
+    // Initialize ApiService with AuthService
+    _apiService = ApiService(AuthService());
+  }
  
   // --- HELPER FUNCTIONS TO PARSE OCR TEXT ---
   double? _parsePrice(String text) {
@@ -31,23 +40,31 @@ class _OcrScreenState extends State<OcrScreen> {
   }
 
   DateTime? _parseDate(String text) {
-    final dateRegex = RegExp(r'(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}[/-]\d{1,2}[/-]\d{1,2}|\d{1,2}\s(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s\d{2,4})', caseSensitive: false);
-    final match = dateRegex.firstMatch(text);
-    if (match != null) {
+  final dateRegex = RegExp(r'(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}[/-]\d{1,2}[/-]\d{1,2}|\d{1,2}\s(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s\d{2,4})', caseSensitive: false);
+  final match = dateRegex.firstMatch(text);
+  if (match != null) {
+    try {
+      // Try common date formats
+      final dateString = match.group(0)!;
       try {
-        // Using a generic loose parser can be effective here
-        return DateFormat('dd/MM/yyyy').parseLoose(match.group(0)!);
+        return DateFormat('dd/MM/yyyy').parse(dateString);
       } catch (e) {
-        // Fallback for other formats if needed
         try {
-          return DateFormat('MM/dd/yyyy').parseLoose(match.group(0)!);
-        } catch (_) {
-          return null;
+          return DateFormat('MM/dd/yyyy').parse(dateString);
+        } catch (e) {
+          try {
+            return DateFormat('yyyy/MM/dd').parse(dateString);
+          } catch (e) {
+            return null;
+          }
         }
       }
+    } catch (e) {
+      return null;
     }
-    return null;
   }
+  return null;
+}
 
   Future<void> _pickImage(ImageSource source) async {
     final ImagePicker picker = ImagePicker();
@@ -74,7 +91,10 @@ class _OcrScreenState extends State<OcrScreen> {
       });
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(e.toString().replaceFirst("Exception: ", "")), backgroundColor: Colors.red),
+        SnackBar(
+          content: Text(e.toString().replaceFirst("Exception: ", "")), 
+          backgroundColor: Colors.red
+        ),
       );
     } finally {
       setState(() {

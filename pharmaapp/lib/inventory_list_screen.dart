@@ -7,9 +7,12 @@ import 'package:pharmaapp/medicine_detail_screen.dart';
 import 'package:pharmaapp/scanner_screen.dart';
 import 'package:pharmaapp/app_background.dart';
 import 'package:pharmaapp/ocr_screen.dart';
-import 'package:pharmaapp/chat_bot_screen.dart';
+import 'package:pharmaapp/chat_bot_screen.dart'; // Fixed import name
 import 'package:flutter_sound/flutter_sound.dart';
 import 'package:permission_handler/permission_handler.dart';
+import 'package:provider/provider.dart';
+import 'auth_service.dart';
+import 'create_medicine_screen.dart';
 
 class InventoryListScreen extends StatefulWidget {
   const InventoryListScreen({super.key});
@@ -24,13 +27,17 @@ bool _isRecording = false;
 String? _audioPath;
 
 class _InventoryListScreenState extends State<InventoryListScreen> {
-  final ApiService _apiService = ApiService();
   late Future<List<Medicine>> _medicinesFuture;
+  late ApiService _apiService; // Add this
 
   @override
   void initState() {
     super.initState();
+    
+    // Get ApiService from Provider
+    _apiService = Provider.of<ApiService>(context, listen: false);
     _medicinesFuture = _apiService.fetchAllMedicines();
+    
     _recorder = FlutterSoundRecorder();
     _initializeRecorder();
   }
@@ -86,7 +93,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
     );
 
     try {
-      await _apiService.processVoiceAudio(audioFile);
+      await _apiService.processVoiceAudio(audioFile); // Fixed: use _apiService
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -99,8 +106,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
       Navigator.pop(context);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content:
-              Text(e.toString().replaceFirst("Exception: ", "")),
+          content: Text(e.toString().replaceFirst("Exception: ", "")),
           backgroundColor: Colors.red,
         ),
       );
@@ -109,7 +115,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
 
   Future<void> _refreshInventory() async {
     setState(() {
-      _medicinesFuture = _apiService.fetchAllMedicines();
+      _medicinesFuture = _apiService.fetchAllMedicines(); // Fixed: use _apiService
     });
   }
 
@@ -126,6 +132,19 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                 'Menu',
                 style: TextStyle(color: Colors.white, fontSize: 24),
               ),
+            ),
+            const Divider(), // Add a visual separator
+
+            // --- ADD THE LOGOUT TILE ---
+            ListTile(
+              leading: const Icon(Icons.logout),
+              title: const Text('Logout'),
+              onTap: () {
+                // Use the AuthService to log out
+                Provider.of<AuthService>(context, listen: false).logout();
+                // You might want to navigate to login screen after logout
+                Navigator.pushNamedAndRemoveUntil(context, '/login', (route) => false);
+              },
             ),
             ListTile(
               leading: const Icon(Icons.inventory, color: Colors.teal),
@@ -148,8 +167,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
               },
             ),
             ListTile(
-              leading:
-                  const Icon(Icons.document_scanner_outlined, color: Colors.teal),
+              leading: const Icon(Icons.document_scanner_outlined, color: Colors.teal),
               title: const Text('Extract from Image (OCR)'),
               onTap: () {
                 Navigator.pop(context);
@@ -157,6 +175,25 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                   context,
                   MaterialPageRoute(builder: (context) => const OcrScreen()),
                 );
+              },
+            ),
+            ListTile(
+              leading: const Icon(Icons.edit_note), // A fitting icon for manual entry
+              title: const Text('Manual Entry'),
+              onTap: () {
+                Navigator.pop(context); // Close the drawer first
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    // Navigate to the existing CreateMedicineScreen
+                    builder: (context) => const CreateMedicineScreen(),
+                  ),
+                ).then((success) {
+                  // After the user saves the new item, refresh the inventory list
+                  if (success == true) {
+                    _refreshInventory();
+                  }
+                });
               },
             ),
           ],
@@ -185,8 +222,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text('Error: ${snapshot.error}',
-                          textAlign: TextAlign.center),
+                      Text('Error: ${snapshot.error}', textAlign: TextAlign.center),
                       const SizedBox(height: 10),
                       ElevatedButton(
                         onPressed: _refreshInventory,
@@ -200,8 +236,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.inventory_2_outlined,
-                          size: 80, color: Colors.grey),
+                      Icon(Icons.inventory_2_outlined, size: 80, color: Colors.grey),
                       SizedBox(height: 16),
                       Text('No medicines found.', style: TextStyle(fontSize: 18)),
                       Text('Pull down to refresh, or scan an item.',
@@ -223,61 +258,57 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                       color: Colors.redAccent,
                       alignment: Alignment.centerRight,
                       padding: const EdgeInsets.symmetric(horizontal: 20.0),
-                      child:
-                          const Icon(Icons.delete_forever, color: Colors.white),
+                      child: const Icon(Icons.delete_forever, color: Colors.white),
                     ),
                     direction: DismissDirection.endToStart,
                     onDismissed: (direction) async {
                       try {
-                        await _apiService.deleteMedicine(medicine.id);
+                        await _apiService.deleteMedicine(medicine.id); // Fixed: use _apiService
+                        
                         setState(() {
                           medicines.removeAt(index);
                         });
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                              content: Text('${medicine.name} deleted'),
-                              backgroundColor: Colors.green),
+                            content: Text('${medicine.name} deleted'),
+                            backgroundColor: Colors.green
+                          ),
                         );
                       } catch (e) {
                         setState(() {});
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
-                              content: Text('Failed to delete: $e'),
-                              backgroundColor: Colors.red),
+                            content: Text('Failed to delete: $e'),
+                            backgroundColor: Colors.red
+                          ),
                         );
                       }
                     },
                     child: Card(
-                      margin:
-                          const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
+                      margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       elevation: 4,
                       child: ListTile(
-                        leading: const Icon(Icons.medication_outlined,
-                            color: Colors.teal),
-                        title: Text(medicine.name,
-                            style: const TextStyle(fontWeight: FontWeight.w600)),
+                        leading: const Icon(Icons.medication_outlined, color: Colors.teal),
+                        title: Text(medicine.name, style: const TextStyle(fontWeight: FontWeight.w600)),
                         subtitle: Text(medicine.manufacturer ?? 'N/A'),
                         trailing: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 4),
+                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                           decoration: BoxDecoration(
                             color: Colors.teal.shade50,
                             borderRadius: BorderRadius.circular(8),
                           ),
                           child: Text(
                             'Stock: ${medicine.totalQuantity}',
-                            style: const TextStyle(
-                                fontWeight: FontWeight.bold, color: Colors.teal),
+                            style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.teal),
                           ),
                         ),
                         onTap: () {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                                builder: (context) =>
-                                    MedicineDetailScreen(medicine: medicine)),
+                              builder: (context) => MedicineDetailScreen(medicine: medicine)
+                            ),
                           ).then((_) => _refreshInventory());
                         },
                       ),
@@ -297,8 +328,7 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
             onPressed: _toggleRecording,
             tooltip: 'Add via Voice',
             heroTag: 'voice_fab',
-            backgroundColor:
-                _isRecording ? Colors.redAccent : Theme.of(context).colorScheme.primary,
+            backgroundColor: _isRecording ? Colors.redAccent : Theme.of(context).colorScheme.primary,
             child: Icon(_isRecording ? Icons.stop : Icons.mic),
           ),
           const SizedBox(height: 12),

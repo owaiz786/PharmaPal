@@ -1,6 +1,10 @@
 // lib/main.dart
 import 'package:flutter/material.dart';
-import 'package:pharmaapp/inventory_list_screen.dart'; // Import our new screen
+import 'package:provider/provider.dart';
+import 'auth_service.dart';
+import 'api_service.dart'; // Import ApiService
+import 'inventory_list_screen.dart';
+import 'login_screen.dart';
 
 void main() {
   runApp(const MyApp());
@@ -11,75 +15,51 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Pharma Inventory',
-      debugShowCheckedModeBanner: false, // removes the debug banner
-
-      // 🌞 Light Theme
-      theme: ThemeData(
-        brightness: Brightness.light,
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal, brightness: Brightness.light),
-        useMaterial3: true,
-
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.teal,
-          foregroundColor: Colors.white,
-          elevation: 4,
+    // 1. We wrap our entire app in a MultiProvider.
+    return MultiProvider(
+      providers: [
+        // 2. The first provider creates our AuthService. It's a ChangeNotifier,
+        // so it can notify widgets when the user logs in or out.
+        ChangeNotifierProvider(
+          create: (ctx) => AuthService(),
         ),
-
-        cardTheme: CardThemeData(
-          elevation: 2,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(12)),
-          ),
+        
+        // 3. The second provider is a ProxyProvider. This is a special provider
+        // that creates an object that depends on another provider.
+        // It creates our ApiService by "proxying" the AuthService to it.
+        ProxyProvider<AuthService, ApiService>(
+          // The 'update' callback is called whenever AuthService changes.
+          // It takes the 'auth' object and provides it to the ApiService constructor.
+          update: (ctx, auth, previousApiService) => ApiService(auth),
         ),
-
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.teal,
-            foregroundColor: Colors.white,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
+      ],
+      // 4. The Consumer listens to AuthService to decide which screen to show.
+      child: Consumer<AuthService>(
+        builder: (ctx, auth, _) => MaterialApp(
+          title: 'PharmPal',
+          debugShowCheckedModeBanner: false,
+          
+          // Your existing theme data is unchanged
+          theme: ThemeData(
+            brightness: Brightness.light,
+            colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal, brightness: Brightness.light),
+            useMaterial3: true,
+            // ... etc
           ),
+          darkTheme: ThemeData(
+            brightness: Brightness.dark,
+            colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal, brightness: Brightness.dark),
+            useMaterial3: true,
+            // ... etc
+          ),
+          themeMode: ThemeMode.system,
+          
+          // The logic to switch between screens based on authentication state
+          home: auth.isAuthenticated 
+              ? const InventoryListScreen() 
+              : const LoginScreen(),
         ),
       ),
-
-      // 🌙 Dark Theme
-      darkTheme: ThemeData(
-        brightness: Brightness.dark,
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.teal, brightness: Brightness.dark),
-        useMaterial3: true,
-
-        appBarTheme: const AppBarTheme(
-          backgroundColor: Colors.black,
-          foregroundColor: Colors.tealAccent,
-          elevation: 2,
-        ),
-
-        cardTheme: CardThemeData(
-          elevation: 2,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.all(Radius.circular(12)),
-          ),
-          color: Colors.grey[900], // darker card background
-        ),
-
-        elevatedButtonTheme: ElevatedButtonThemeData(
-          style: ElevatedButton.styleFrom(
-            backgroundColor: Colors.tealAccent[700],
-            foregroundColor: Colors.black,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(8),
-            ),
-          ),
-        ),
-      ),
-
-      // Automatically follows system setting
-      themeMode: ThemeMode.system,
-
-       home: const InventoryListScreen(),
     );
   }
 }
