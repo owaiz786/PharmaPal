@@ -1,9 +1,9 @@
 // lib/edit_medicine_screen.dart
 import 'package:flutter/material.dart';
 import 'package:pharmaapp/api_service.dart';
-import 'package:pharmaapp/auth_service.dart'; // Add this import
+import 'package:pharmaapp/auth_service.dart';
 import 'package:pharmaapp/medicine.dart';
-import 'package:intl/intl.dart'; // Add this import for date formatting
+import 'package:intl/intl.dart';
 
 class EditMedicineScreen extends StatefulWidget {
   final Medicine medicine;
@@ -15,7 +15,7 @@ class EditMedicineScreen extends StatefulWidget {
 
 class _EditMedicineScreenState extends State<EditMedicineScreen> {
   final _formKey = GlobalKey<FormState>();
-  late final ApiService _apiService; // Change to late final
+  late final ApiService _apiService;
 
   late TextEditingController _nameController;
   late TextEditingController _manufacturerController;
@@ -27,13 +27,17 @@ class _EditMedicineScreenState extends State<EditMedicineScreen> {
   void initState() {
     super.initState();
     
-    // Initialize ApiService with AuthService
     _apiService = ApiService(AuthService());
     
     // Pre-fill the form with the existing medicine data
     _nameController = TextEditingController(text: widget.medicine.name);
-    _manufacturerController = TextEditingController(text: widget.medicine.manufacturer);
-    _strengthController = TextEditingController(text: widget.medicine.strength);
+    
+    // FIX: Use manufacturerName instead of manufacturer
+    _manufacturerController = TextEditingController(
+      text: widget.medicine.manufacturerName ?? ''
+    );
+    
+    _strengthController = TextEditingController(text: widget.medicine.strength ?? '');
     _priceController = TextEditingController(text: widget.medicine.price.toString());
     _expiryDate = widget.medicine.expiryDate;
   }
@@ -44,12 +48,12 @@ class _EditMedicineScreenState extends State<EditMedicineScreen> {
         final updatedMedicine = await _apiService.updateMedicine(
           medicineId: widget.medicine.id,
           name: _nameController.text,
-          manufacturer: _manufacturerController.text,
-          strength: _strengthController.text,
+          manufacturer: _manufacturerController.text.isEmpty ? null : _manufacturerController.text,
+          strength: _strengthController.text.isEmpty ? null : _strengthController.text,
           price: double.parse(_priceController.text),
           expiryDate: _expiryDate,
         );
-        Navigator.pop(context, updatedMedicine); // Return the updated object
+        Navigator.pop(context, updatedMedicine);
       } catch (e) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text(e.toString()), backgroundColor: Colors.red),
@@ -70,30 +74,54 @@ class _EditMedicineScreenState extends State<EditMedicineScreen> {
           key: _formKey,
           child: ListView(
             children: [
-              Text('Barcode: ${widget.medicine.barcode ?? 'N/A'}', style: Theme.of(context).textTheme.titleMedium),
+              Text('Barcode: ${widget.medicine.barcode ?? 'N/A'}', 
+                  style: Theme.of(context).textTheme.titleMedium),
               const SizedBox(height: 16),
+              
               TextFormField(
                 controller: _nameController, 
-                decoration: const InputDecoration(labelText: 'Medicine Name'), 
+                decoration: const InputDecoration(
+                  labelText: 'Medicine Name',
+                  border: OutlineInputBorder(),
+                ), 
                 validator: (value) => value!.isEmpty ? 'Please enter a name' : null
               ),
+              
+              const SizedBox(height: 16),
+              
               TextFormField(
                 controller: _manufacturerController, 
-                decoration: const InputDecoration(labelText: 'Manufacturer')
+                decoration: const InputDecoration(
+                  labelText: 'Manufacturer',
+                  border: OutlineInputBorder(),
+                )
               ),
+              
+              const SizedBox(height: 16),
+              
               TextFormField(
                 controller: _strengthController, 
-                decoration: const InputDecoration(labelText: 'Strength (e.g., 500mg)')
+                decoration: const InputDecoration(
+                  labelText: 'Strength (e.g., 500mg)',
+                  border: OutlineInputBorder(),
+                )
               ),
+              
+              const SizedBox(height: 16),
+              
               TextFormField(
                 controller: _priceController, 
-                decoration: const InputDecoration(labelText: 'Price'), 
+                decoration: const InputDecoration(
+                  labelText: 'Price',
+                  border: OutlineInputBorder(),
+                ), 
                 keyboardType: TextInputType.number, 
                 validator: (value) => value!.isEmpty ? 'Please enter a price' : null
               ),
               
-              // Add the date picker section (similar to create screen)
               const SizedBox(height: 20),
+              
+              // Expiry Date Picker
               InkWell(
                 onTap: () async {
                   final pickedDate = await showDatePicker(
@@ -107,15 +135,27 @@ class _EditMedicineScreenState extends State<EditMedicineScreen> {
                   }
                 },
                 child: InputDecorator(
-                  decoration: const InputDecoration(labelText: 'Expiry Date'),
-                  child: Text(DateFormat.yMMMd().format(_expiryDate)),
+                  decoration: const InputDecoration(
+                    labelText: 'Expiry Date',
+                    border: OutlineInputBorder(),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(DateFormat.yMMMd().format(_expiryDate)),
+                      const Icon(Icons.calendar_today, size: 20),
+                    ],
+                  ),
                 ),
               ),
               
               const SizedBox(height: 30),
               ElevatedButton(
                 onPressed: _submitForm,
-                child: const Text('Save Changes'),
+                style: ElevatedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 16),
+                ),
+                child: const Text('Save Changes', style: TextStyle(fontSize: 16)),
               ),
             ],
           ),

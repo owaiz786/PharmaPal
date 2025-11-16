@@ -288,30 +288,37 @@ class _InventoryListScreenState extends State<InventoryListScreen> {
                       margin: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                       elevation: 4,
-                      child: ListTile(
-                        leading: const Icon(Icons.medication_outlined, color: Colors.teal),
-                        title: Text(medicine.name, style: const TextStyle(fontWeight: FontWeight.w600)),
-                        subtitle: Text(medicine.manufacturer ?? 'N/A'),
-                        trailing: Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.teal.shade50,
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Text(
-                            'Stock: ${medicine.totalQuantity}',
-                            style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.teal),
-                          ),
-                        ),
-                        onTap: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => MedicineDetailScreen(medicine: medicine)
-                            ),
-                          ).then((_) => _refreshInventory());
-                        },
-                      ),
+                     child: ListTile(
+  leading: const Icon(Icons.medication_outlined, color: Colors.teal),
+  title: Text(medicine.name, style: const TextStyle(fontWeight: FontWeight.w600)),
+  subtitle: Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      if (medicine.manufacturerName != null)
+        Text('Manufacturer: ${medicine.manufacturerName}'),
+      Text('Categories: ${medicine.categoryNames}'),
+    ],
+  ),
+  trailing: Container(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    decoration: BoxDecoration(
+      color: Colors.teal.shade50,
+      borderRadius: BorderRadius.circular(8),
+    ),
+    child: Text(
+      'Stock: ${medicine.totalQuantity}',
+      style: const TextStyle(fontWeight: FontWeight.bold, color: Colors.teal),
+    ),
+  ),
+  onTap: () {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => MedicineDetailScreen(medicine: medicine)
+      ),
+    ).then((_) => _refreshInventory());
+  },
+),
                     ),
                   );
                 },

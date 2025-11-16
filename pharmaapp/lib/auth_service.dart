@@ -5,7 +5,7 @@ import 'dart:convert';
 
 class AuthService extends ChangeNotifier {
   // Use the same base URL as your ApiService
-  static const String _baseUrl = "http://10.113.175.122:8000"; 
+  static const String _baseUrl = "http://10.182.230.122:8000"; 
   final _storage = const FlutterSecureStorage();
 
   String? _token;

@@ -219,27 +219,40 @@ class _MedicineDetailScreenState extends State<MedicineDetailScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Header card — showing manufacturer, total stock & price
-            Card(
-              margin: const EdgeInsets.all(8.0),
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(vertical: 12.0, horizontal: 16.0),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      _currentMedicine.name,
-                      style: Theme.of(context).textTheme.titleLarge,
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                        'Manufacturer: ${_currentMedicine.manufacturer ?? 'N/A'}'),
-                    Text('Total Stock: ${_currentMedicine.totalQuantity} units'),
-                    Text('Price: \$${_currentMedicine.price.toStringAsFixed(2)}'),
-                  ],
-                ),
-              ),
-            ),
+            // In the build method of MedicineDetailScreen, update the header card:
+Card(
+  margin: const EdgeInsets.all(8.0),
+  child: Padding(
+    padding: const EdgeInsets.all(16.0),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          _currentMedicine.name,
+          style: Theme.of(context).textTheme.titleLarge,
+        ),
+        const SizedBox(height: 8),
+        
+        // Show manufacturer from relational data
+        if (_currentMedicine.manufacturerName != null)
+          Text('Manufacturer: ${_currentMedicine.manufacturerName}'),
+        
+        // Show categories from relational data  
+        Text('Categories: ${_currentMedicine.categoryNames}'),
+        
+        Text('Strength: ${_currentMedicine.strength ?? 'N/A'}'),
+        Text('Total Stock: ${_currentMedicine.totalQuantity} units'),
+        Text('Price: \$${_currentMedicine.price.toStringAsFixed(2)}'),
+        
+        // Show additional fields if available
+        if (_currentMedicine.requiresPrescription)
+          const Text('⚠️ Requires Prescription'),
+        if (_currentMedicine.storageInstructions != null)
+          Text('Storage: ${_currentMedicine.storageInstructions}'),
+      ],
+    ),
+  ),
+),
             const SizedBox(height: 16),
             Text('Batches in Stock',
                 style: Theme.of(context).textTheme.titleLarge),

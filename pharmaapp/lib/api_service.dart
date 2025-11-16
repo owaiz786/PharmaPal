@@ -6,7 +6,7 @@ import 'package:pharmaapp/medicine.dart';
 import 'auth_service.dart';
 
 class ApiService {
-  static const String _baseUrl = "http://10.113.175.122:8000"; 
+  static const String _baseUrl = "http://10.182.230.122:8000";
   
   final AuthService _authService;
 
@@ -33,47 +33,96 @@ class ApiService {
       'Authorization': 'Bearer $token',
     };
   }
-  // --------------------------------------------------
 
-  // --- ALL FUNCTIONS NOW AUTHENTICATED ---
-
-  Future<List<Medicine>> fetchAllMedicines() async {
-    final url = Uri.parse('$_baseUrl/medicines/');
-    print('🔍 Fetching medicines from: $url'); // Debug log
+  // --- UPDATED SMART CREATE METHOD FOR RELATIONAL DATA ---
+  Future<Medicine> smartCreateMedicine({
+    String? barcode,
+    required String name,
+    String? manufacturerName,  // Changed from manufacturer to manufacturerName
+    String? strength,
+    required double price,
+    required String lotNumber,
+    required int quantity,
+    required DateTime expiryDate,
+    List<String> categoryNames = const [],  // Changed from single category to list
+    bool requiresPrescription = false,
+    String? storageInstructions,
+    String? sideEffects,
+  }) async {
+    final url = Uri.parse('$_baseUrl/medicines/smart-create');
+    final body = json.encode({
+      'barcode': barcode, 
+      'name': name, 
+      'strength': strength, 
+      'price': price, 
+      'lot_number': lotNumber,
+      'quantity': quantity,
+      'expiry_date': "${expiryDate.year.toString().padLeft(4, '0')}-${expiryDate.month.toString().padLeft(2, '0')}-${expiryDate.day.toString().padLeft(2, '0')}",
+      // NEW RELATIONAL FIELDS
+      'manufacturer_name': manufacturerName,
+      'category_names': categoryNames,
+      // Keep these if your backend still uses them
+      'requires_prescription': requiresPrescription,
+      'storage_instructions': storageInstructions,
+      'side_effects': sideEffects,
+    });
     
-    final response = await http.get(url, headers: _authHeaderOnly);
+    print('📤 Sending data to server: $body'); // Debug print
     
-    print('📡 Response status: ${response.statusCode}'); // Debug log
-    print('📦 Response body: ${response.body}'); // Debug log
-    
+    final response = await http.post(url, headers: _jsonHeaders, body: body);
     if (response.statusCode == 200) {
-      return medicineListFromJson(response.body);
-    } else if (response.statusCode == 401) {
-      throw Exception('Session expired. Please log in again.');
-    } else if (response.statusCode == 404) {
-      throw Exception('Medicines endpoint not found. Please check server configuration.');
+      return Medicine.fromJson(json.decode(response.body));
     } else {
-      throw Exception('Failed to load medicine list. Status: ${response.statusCode}');
+      throw Exception('Failed to create medicine. Server returned: ${response.body}');
     }
   }
 
-  Future<Map<String, dynamic>> parseMedicineText(String extractedText) async {
-  final url = Uri.parse('$_baseUrl/chatbot/parse-medicine-text');
-  final body = json.encode({'extracted_text': extractedText});
-  final response = await http.post(url, headers: _jsonHeaders, body: body);
+  // --- REST OF YOUR METHODS (keep them as they are) ---
+  // In your fetchAllMedicines method or wherever you get the data
+Future<List<Medicine>> fetchAllMedicines() async {
+  final url = Uri.parse('$_baseUrl/medicines/');
+  print('🔍 Fetching medicines from: $url');
+  
+  final response = await http.get(url, headers: _authHeaderOnly);
+  
+  print('📡 Response status: ${response.statusCode}');
+  
   if (response.statusCode == 200) {
-    return json.decode(response.body);
+    // Debug: print the raw response to see what's included
+    print('📦 Raw response: ${response.body}');
+    
+    final medicines = medicineListFromJson(response.body);
+    
+    // Debug: print each medicine's relational data
+    for (var medicine in medicines) {
+      print('💊 Medicine: ${medicine.name}');
+      print('   Manufacturer: ${medicine.manufacturerDetails?.name}');
+      print('   Categories: ${medicine.categories.map((c) => c.name).toList()}');
+      print('   Inventory items: ${medicine.inventoryItems.length}');
+    }
+    
+    return medicines;
   } else {
-    throw Exception('Failed to parse medicine text. Status: ${response.statusCode}');
+    throw Exception('Failed to load medicine list. Status: ${response.statusCode}');
   }
 }
 
-  // ... REST OF YOUR METHODS REMAIN THE SAME ...
+  Future<Map<String, dynamic>> parseMedicineText(String extractedText) async {
+    final url = Uri.parse('$_baseUrl/chatbot/parse-medicine-text');
+    final body = json.encode({'extracted_text': extractedText});
+    final response = await http.post(url, headers: _jsonHeaders, body: body);
+    if (response.statusCode == 200) {
+      return json.decode(response.body);
+    } else {
+      throw Exception('Failed to parse medicine text. Status: ${response.statusCode}');
+    }
+  }
+
   Future<Medicine> fetchMedicineById(int medicineId) async {
     final url = Uri.parse('$_baseUrl/medicines/$medicineId');
     final response = await http.get(url, headers: _authHeaderOnly);
     if (response.statusCode == 200) {
-      return  Medicine.fromJson(json.decode(response.body));
+      return Medicine.fromJson(json.decode(response.body));
     } else {
       throw Exception('Failed to load updated medicine data.');
     }
@@ -91,6 +140,9 @@ class ApiService {
     }
   }
 
+// In your fetchAllMedicines method or wherever you get the data
+
+  // ... REST OF YOUR EXISTING METHODS (createMedicine, updateMedicine, deleteMedicine, etc.)
   Future<Medicine> createMedicine({
     required String barcode,
     required String name,
@@ -107,58 +159,44 @@ class ApiService {
     });
     final response = await http.post(url, headers: _jsonHeaders, body: body);
     if (response.statusCode == 201) {
-       return Medicine.fromJson(json.decode(response.body));
-    } else {
-      throw Exception('Failed to create medicine. Server returned: ${response.body}');
-    }
-  }
-
-  Future<Medicine> smartCreateMedicine({
-    String? barcode,
-    required String name,
-    String? manufacturer,
-    String? strength,
-    required double price,
-    required String lotNumber,
-    required int quantity,
-    required DateTime expiryDate,
-  }) async {
-    final url = Uri.parse('$_baseUrl/medicines/smart-create');
-    final body = json.encode({
-      'barcode': barcode, 'name': name, 'manufacturer': manufacturer,
-      'strength': strength, 'price': price, 'lot_number': lotNumber,
-      'quantity': quantity,
-      'expiry_date': "${expiryDate.year.toString().padLeft(4, '0')}-${expiryDate.month.toString().padLeft(2, '0')}-${expiryDate.day.toString().padLeft(2, '0')}",
-    });
-    final response = await http.post(url, headers: _jsonHeaders, body: body);
-    if (response.statusCode == 200) {
-     return Medicine.fromJson(json.decode(response.body));
-    } else {
-      throw Exception('Failed to create medicine. Server returned: ${response.body}');
-    }
-  }
-
-  Future<Medicine> updateMedicine({
-    required int medicineId,
-    required String name,
-    String? manufacturer,
-    String? strength,
-    required double price,
-    required DateTime expiryDate,
-  }) async {
-    final url = Uri.parse('$_baseUrl/medicines/$medicineId');
-    final body = json.encode({
-      'name': name, 'manufacturer': manufacturer, 'strength': strength,
-      'price': price,
-      'expiry_date': "${expiryDate.year.toString().padLeft(4, '0')}-${expiryDate.month.toString().padLeft(2, '0')}-${expiryDate.day.toString().padLeft(2, '0')}",
-    });
-    final response = await http.put(url, headers: _jsonHeaders, body: body);
-    if (response.statusCode == 200) {
       return Medicine.fromJson(json.decode(response.body));
     } else {
-      throw Exception('Failed to update medicine.');
+      throw Exception('Failed to create medicine. Server returned: ${response.body}');
     }
   }
+
+Future<Medicine> updateMedicine({
+  required int medicineId,
+  required String name,
+  String? manufacturer,  // This should still work with your backend
+  String? strength,
+  required double price,
+  required DateTime expiryDate,
+  String? category,
+  bool requiresPrescription = false,
+  String? storageInstructions,
+  String? sideEffects,
+}) async {
+  final url = Uri.parse('$_baseUrl/medicines/$medicineId');
+  final body = json.encode({
+    'name': name, 
+    'manufacturer': manufacturer,  // Backend should handle this
+    'strength': strength,
+    'price': price,
+    'expiry_date': "${expiryDate.year.toString().padLeft(4, '0')}-${expiryDate.month.toString().padLeft(2, '0')}-${expiryDate.day.toString().padLeft(2, '0')}",
+    'category': category,
+    'requires_prescription': requiresPrescription,
+    'storage_instructions': storageInstructions,
+    'side_effects': sideEffects,
+  });
+  
+  final response = await http.put(url, headers: _jsonHeaders, body: body);
+  if (response.statusCode == 200) {
+    return Medicine.fromJson(json.decode(response.body));
+  } else {
+    throw Exception('Failed to update medicine.');
+  }
+}
 
   Future<void> deleteMedicine(int medicineId) async {
     final url = Uri.parse('$_baseUrl/medicines/$medicineId');

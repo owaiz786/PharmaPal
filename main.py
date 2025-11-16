@@ -1,7 +1,8 @@
 # main.py
 from dotenv import load_dotenv
+from sqlalchemy.orm import joinedload
 load_dotenv()
-
+from typing import List, Optional
 from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, status
 from sqlalchemy.orm import Session
 from typing import List
@@ -21,6 +22,9 @@ from sqlalchemy.exc import IntegrityError
 from openai import OpenAI
 from fastapi.security import OAuth2PasswordRequestForm
 import auth
+from fastapi import FastAPI, Depends, HTTPException, UploadFile, File, status
+from fastapi.middleware.cors import CORSMiddleware  # Add this import
+from sqlalchemy.orm import Session
 
 print(f"--- Loaded groq API Key: {os.getenv('GROQ_API_KEY')} ---")
 
@@ -46,6 +50,14 @@ app = FastAPI(
     title="PharmPal API",
     description="API for Pharmaceutical Inventory Management",
     version="1.0.0",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # --- HELPER & DATABASE FUNCTIONS ---
@@ -81,55 +93,52 @@ def verify_inventory_ownership(item_id: int, user_id: int, db: Session):
         raise HTTPException(status_code=404, detail="You don't have permission to access this inventory item")
     return item
 
+# In main.py - Update the _smart_create_db_entry function
+# In main.py - Update the smart create function
 def _smart_create_db_entry(data: schemas.SmartCreateRequest, db: Session, user_id: int):
     """
-    Safely creates a new medicine and its first inventory item.
-    Handles both voice input (no barcode) and scan input (with barcode).
-    Includes debugging prints and robust error handling.
+    Creates medicine with proper category and manufacturer relationships
     """
-    # --- STEP 1: DEBUGGING PRINT ---
-    print("\n--- ATTEMPTING TO SAVE TO DATABASE ---")
-    print(f"Data received for validation: {data.dict()}")
-    print(f"User ID: {user_id}")
-    print("------------------------------------\n")
+    print(f"\n--- CREATING MEDICINE WITH RELATIONSHIPS ---")
+    print(f"Medicine: {data.name}")
+    print(f"Manufacturer: {data.manufacturer_name}")
+    print(f"Categories: {data.category_names}")
     
     try:
-        # --- STEP 2: HANDLE BARCODE LOGIC ---
-        if data.barcode:
-            existing_medicine = db.query(models.Medicine).filter(
-                models.Medicine.barcode == data.barcode,
-                models.Medicine.user_id == user_id  # Only check user's own medicines
-            ).first()
-            if existing_medicine:
-                print(f"Found existing medicine '{existing_medicine.name}' via barcode. Adding new batch.")
-                new_inventory_item = models.InventoryItem(
-                    medicine_id=existing_medicine.id,
-                    lot_number=data.lot_number,
-                    quantity=data.quantity,
-                    expiry_date=data.expiry_date
-                )
-                db.add(new_inventory_item)
-                db.commit()
-                db.refresh(existing_medicine)
-                return existing_medicine
-
-        # --- STEP 3: CREATE NEW MEDICINE ---
-        print(f"Creating new medicine catalog entry for '{data.name}'.")
+        # --- HANDLE MANUFACTURER ---
+        manufacturer = None
+        if data.manufacturer_name:
+            manufacturer = get_or_create_manufacturer(db, data.manufacturer_name)
+        
+        # --- HANDLE CATEGORIES ---
+        categories = []
+        for category_name in data.category_names:
+            if category_name and category_name.strip():  # Skip empty category names
+                category = get_or_create_category(db, category_name.strip())
+                categories.append(category)
+        
+        # --- CREATE MEDICINE ---
         new_medicine = models.Medicine(
             barcode=data.barcode,
             name=data.name,
-            user_id=user_id,
-            manufacturer=data.manufacturer,
             strength=data.strength,
             price=data.price,
-            expiry_date=data.expiry_date
+            expiry_date=data.expiry_date,
+            user_id=user_id,
+            manufacturer_id=manufacturer.id if manufacturer else None,
+            requires_prescription=data.requires_prescription,
+            storage_instructions=data.storage_instructions,
+            side_effects=data.side_effects
         )
+        
+        # Add categories to medicine (many-to-many)
+        new_medicine.categories = categories
+        
         db.add(new_medicine)
         db.commit()
         db.refresh(new_medicine)
 
-        # --- STEP 4: CREATE THE INVENTORY BATCH ---
-        print(f"Creating new inventory batch for '{data.name}' with lot '{data.lot_number}'.")
+        # --- CREATE INVENTORY ITEM ---
         new_inventory_item = models.InventoryItem(
             medicine_id=new_medicine.id,
             lot_number=data.lot_number,
@@ -140,19 +149,17 @@ def _smart_create_db_entry(data: schemas.SmartCreateRequest, db: Session, user_i
         db.commit()
         db.refresh(new_medicine)
         
-        print("--- DATABASE SAVE SUCCESSFUL ---")
+        print("--- RELATIONAL DATA SAVED SUCCESSFULLY ---")
+        print(f"Medicine ID: {new_medicine.id}")
+        print(f"Manufacturer ID: {manufacturer.id if manufacturer else 'None'}")
+        print(f"Category IDs: {[c.id for c in categories]}")
+        
         return new_medicine
 
-    # --- STEP 5: ROBUST ERROR HANDLING ---
-    except IntegrityError as e:
-        print(f"!!! DATABASE INTEGRITY ERROR: {e} !!!")
-        db.rollback()
-        raise HTTPException(status_code=409, detail=f"A medicine with this barcode ('{data.barcode}') already exists. The operation was cancelled.")
     except Exception as e:
-        print(f"!!! UNEXPECTED DATABASE ERROR: {e} !!!")
+        print(f"!!! ERROR: {e} !!!")
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"An unexpected error occurred while saving to the database: {e}")
-
+        raise HTTPException(status_code=500, detail=f"Database error: {e}")
 def find_and_parse_date(text_block: str):
     date_pattern = r'(\d{1,2}[/-]\d{1,2}[/-]\d{2,4}|\d{4}[/-]\d{1,2}[/-]\d{1,2}|\d{1,2}[ -](?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*[ -]\d{2,4})'
     match = re.search(date_pattern, text_block, re.IGNORECASE)
@@ -193,7 +200,64 @@ def parse_gs1_string(data: str) -> dict:
         except ValueError: pass
     return parsed_data
 
+def get_or_create_category(db: Session, category_name: str) -> models.Category:
+    """Get existing category or create new one"""
+    category = db.query(models.Category).filter(
+        models.Category.name == category_name
+    ).first()
+    
+    if not category:
+        category = models.Category(name=category_name)
+        db.add(category)
+        db.commit()
+        db.refresh(category)
+        print(f"Created new category: {category_name}")
+    
+    return category
+
+def get_or_create_manufacturer(db: Session, manufacturer_name: str) -> Optional[models.Manufacturer]:
+    """Get existing manufacturer or create new one"""
+    if not manufacturer_name:
+        return None
+        
+    manufacturer = db.query(models.Manufacturer).filter(
+        models.Manufacturer.name == manufacturer_name
+    ).first()
+    
+    if not manufacturer:
+        manufacturer = models.Manufacturer(name=manufacturer_name)
+        db.add(manufacturer)
+        db.commit()
+        db.refresh(manufacturer)
+        print(f"Created new manufacturer: {manufacturer_name}")
+    
+    return manufacturer
+
 # --- API ENDPOINTS ---
+
+@app.get("/")
+async def root():
+    return {
+        "message": "PharmPal API is running!", 
+        "status": "active",
+        "docs": "Visit /docs for API documentation"
+    }
+    
+    
+@app.get("/medicines/", response_model=List[schemas.Medicine])
+def get_all_medicines(
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(auth.get_current_active_user)
+):
+    """Get all medicines for the current user with relationships"""
+    medicines = db.query(models.Medicine).filter(
+        models.Medicine.user_id == current_user.id
+    ).options(
+        joinedload(models.Medicine.manufacturer_details),
+        joinedload(models.Medicine.categories),
+        joinedload(models.Medicine.inventory_items)
+    ).all()
+    return medicines    
 
 @app.post("/register", response_model=schemas.User)
 def register_user(user: schemas.UserCreate, db: Session = Depends(get_db)):
@@ -238,14 +302,22 @@ def get_all_medicines(
         models.Medicine.user_id == current_user.id
     ).all()
     return medicines
-@app.get("/medicines/{medicine_id}", response_model=schemas.Medicine)
-def read_medicine(
+# In main.py - Update the update_medicine_details endpoint
+@app.put("/medicines/{medicine_id}", response_model=schemas.Medicine)
+def update_medicine_details(
     medicine_id: int, 
+    medicine_update: schemas.MedicineCreate,  # This now includes the new fields
     db: Session = Depends(get_db),
     current_user: models.User = Depends(auth.get_current_active_user)
 ):
-    """Get a specific medicine by ID (only if owned by current user)"""
+    """Update medicine details (only if owned by current user)"""
     db_medicine = verify_medicine_ownership(medicine_id, current_user.id, db)
+    
+    update_data = medicine_update.dict(exclude_unset=True)
+    for key, value in update_data.items():
+        setattr(db_medicine, key, value)
+    db.commit()
+    db.refresh(db_medicine)
     return db_medicine
 
 @app.get("/medicines/barcode/{barcode}", response_model=schemas.Medicine)
@@ -687,29 +759,36 @@ def parse_medicine_text(
     if not extracted_text:
         raise HTTPException(status_code=400, detail="Extracted text is required.")
     
+    # Parsing prompt to extract medicine information from OCR text
     parsing_prompt = f"""
-    You are an expert pharmaceutical AI assistant. Your task is to extract structured medicine information from OCR text.
-    
-    Extract the following fields from the text:
-    - name (string, required): The medicine name
-    - manufacturer (string, optional): The manufacturer company
-    - strength (string, optional): The strength/dosage (e.g., "500mg", "10mg/5ml")
-    - price (float, optional): The price if mentioned
-    - lot_number (string, optional): Batch/Lot number if visible
-    - expiry_date (string, optional): Expiry date in "YYYY-MM-DD" format if visible
-    
-    IMPORTANT RULES:
-    - Return ONLY a valid JSON object with these fields
-    - Use null for missing fields
-    - For dates, convert to YYYY-MM-DD format
-    - For strength, include units (mg, ml, etc.)
-    - Be accurate and conservative - only extract clearly visible information
-    
-    OCR Text to parse:
-    "{extracted_text}"
-    
-    Respond with JSON only:
-    """
+You are an expert AI assistant for pharmaceutical inventory. Your task is to extract structured data from OCR-extracted text from medicine packaging.
+You must parse this text to extract the following fields:
+- name (string, required)
+- manufacturer (string, optional, default to "Unknown" if not mentioned)
+- strength (string, optional, default to "N/A" if not mentioned)
+- price (float, required, if not mentioned use 0.0)
+- lot_number (string, required, if not mentioned generate one like "LOT-OCR-[timestamp]")
+- quantity (integer, optional, default to 1 if not mentioned)
+- expiry_date (string, in "YYYY-MM-DD" format, required if found, otherwise use null)
+- barcode (string, optional, can be null)
+- category (string, optional, can be null)
+- requires_prescription (boolean, optional, default to false)
+- storage_instructions (string, optional, can be null)
+- side_effects (string, optional, can be null)
+
+IMPORTANT RULES:
+- DO NOT use null for price or lot_number
+- If price is not mentioned, use 0.0
+- If lot_number is not mentioned, generate a unique one with format "LOT-OCR-YYYYMMDD"
+- If manufacturer is not mentioned, use "Unknown"
+- If strength is not mentioned, use "N/A" 
+- If requires_prescription is not mentioned, use false
+- For category, storage_instructions, and side_effects, use null if not mentioned
+
+You MUST respond ONLY with a single, valid JSON object containing these fields. Do not add any explanation or conversational text.
+
+OCR extracted text: "{extracted_text}"
+"""
     
     try:
         response = client.chat.completions.create(
@@ -727,4 +806,4 @@ def parse_medicine_text(
         
     except Exception as e:
         print(f"Error parsing medicine text with Groq: {e}")
-        raise HTTPException(status_code=400, detail=f"Could not parse the medicine text: {str(e)}")    
+        raise HTTPException(status_code=400, detail=f"Could not parse the medicine text: {str(e)}")
